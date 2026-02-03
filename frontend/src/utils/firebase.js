@@ -11,5 +11,8 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
+console.log("Project ID check:", import.meta.env.VITE_FIREBASE_PROJECT_ID);
+console.log("API Key length:", import.meta.env.VITE_FIREBASE_API_KEY?.length);
+
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
