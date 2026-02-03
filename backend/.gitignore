@@ -1,0 +1,16 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv
+venv
+set_admin_role.py
+sync_firebase_db.py
+database.dbml
+dbml-error.log
+docker-compose.yml
+.dockerignore
+firebase-adminsdk.json
+model_rotation_state.json
+credentials.json
