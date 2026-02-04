@@ -55,8 +55,8 @@ def run_daily_automation():
         # 5. (Opsional) Simpan hasil analisis ke Riwayat jika diperlukan secara otomatis
         logger.info("Menyimpan hasil analisis harian ke tabel history...")
         save_use_case = container.get_use_case("save_latest_analysis", db)
-        result = save_use_case.execute(current_user=None) # Perlu penyesuaian di Use Case jika user=None
-
+        result = save_use_case.execute(current_user=None)
+        
         logger.info(f"=== PROSES BERHASIL DISELESAIKAN PADA {datetime.now(pytz.timezone('Asia/Jakarta'))} ===")
 
     except Exception as e:

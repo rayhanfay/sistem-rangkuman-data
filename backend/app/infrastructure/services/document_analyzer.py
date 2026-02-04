@@ -75,7 +75,7 @@ class DocumentAnalyzer:
         """Menginisialisasi model rotation service."""
         self.rotation_service = ModelRotationService()
         self.model = None
-        self.eval_model = None # Tambahkan instance khusus evaluasi
+        # self.eval_model = None # Tambahkan instance khusus evaluasi
         self._initialize_model()
 
     def _initialize_model(self):
@@ -93,11 +93,11 @@ class DocumentAnalyzer:
             temperature=0.1,
         )
 
-        self.eval_model = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash-lite", # Paksa pakai Lite
-            google_api_key=api_key,
-            temperature=0.1,
-        )
+        # self.eval_model = ChatGoogleGenerativeAI(
+        #     model="gemini-2.5-flash-lite", # Paksa pakai Lite
+        #     google_api_key=api_key,
+        #     temperature=0.1,
+        # )
         
         logging.info(f"Models initialized. Main: {model_name}, Eval: gemini-2.5-flash-lite")
 
@@ -388,27 +388,27 @@ class DocumentAnalyzer:
         })
         
         print(f">>> Summary created: {len(summary)} characters")
-        print("-"*80)
-        print(">>> LLM CALL #2: EVALUATING SUMMARY")
-        print("-"*80)
+        # print("-"*80)
+        # print(">>> LLM CALL #2: EVALUATING SUMMARY")
+        # print("-"*80)
         
-        # Evaluation
-        evaluation_result = self.evaluate_summary_factualness(
-            source_document=tool_result,
-            summary_to_evaluate=summary,
-            user_prompt=user_prompt
-        )
+        # # Evaluation
+        # evaluation_result = self.evaluate_summary_factualness(
+        #     source_document=tool_result,
+        #     summary_to_evaluate=summary,
+        #     user_prompt=user_prompt
+        # )
         
-        print("\n" + "="*80)
-        print(">>> EVALUATION RESULT:")
-        print("="*80)
-        is_correct = evaluation_result.get('factual_accuracy', {}).get('is_correct')
-        print(f"Factual Accuracy: {'CORRECT ✓' if is_correct else 'INCORRECT ✗'}")
-        print(f"Completeness: {evaluation_result.get('completeness_score', 'N/A')}/5")
-        print(f"Relevance: {evaluation_result.get('relevance_score', 'N/A')}/5")
-        print(f"Final Score: {evaluation_result.get('final_score', 'N/A')}")
-        print(f"Reasoning: {evaluation_result.get('reasoning', 'N/A')}")
-        print("="*80 + "\n")
+        # print("\n" + "="*80)
+        # print(">>> EVALUATION RESULT:")
+        # print("="*80)
+        # is_correct = evaluation_result.get('factual_accuracy', {}).get('is_correct')
+        # print(f"Factual Accuracy: {'CORRECT ✓' if is_correct else 'INCORRECT ✗'}")
+        # print(f"Completeness: {evaluation_result.get('completeness_score', 'N/A')}/5")
+        # print(f"Relevance: {evaluation_result.get('relevance_score', 'N/A')}/5")
+        # print(f"Final Score: {evaluation_result.get('final_score', 'N/A')}")
+        # print(f"Reasoning: {evaluation_result.get('reasoning', 'N/A')}")
+        # print("="*80 + "\n")
 
         return summary
 
@@ -441,128 +441,128 @@ class DocumentAnalyzer:
         
         return summary
 
-    def evaluate_summary_factualness(
-        self, 
-        source_document: str, 
-        summary_to_evaluate: str, 
-        user_prompt: str
-    ) -> Dict:
-        """Mengevaluasi kebenaran faktual menggunakan Flash Lite."""
-        print(">>> Calling LLM (Flash Lite) for evaluation...")
+    # def evaluate_summary_factualness(
+    #     self, 
+    #     source_document: str, 
+    #     summary_to_evaluate: str, 
+    #     user_prompt: str
+    # ) -> Dict:
+    #     """Mengevaluasi kebenaran faktual menggunakan Flash Lite."""
+    #     print(">>> Calling LLM (Flash Lite) for evaluation...")
         
-        evaluation_response_str = ""
-        try:
-            # Gunakan model Lite khusus evaluasi
-            prompt = ChatPromptTemplate.from_template(EVALUATION_PROMPT_TEMPLATE)
-            chain = prompt | self.eval_model | StrOutputParser()
+    #     evaluation_response_str = ""
+    #     try:
+    #         # Gunakan model Lite khusus evaluasi
+    #         prompt = ChatPromptTemplate.from_template(EVALUATION_PROMPT_TEMPLATE)
+    #         chain = prompt | self.eval_model | StrOutputParser()
             
-            # Eksekusi dengan wrapper rotasi
-            evaluation_response_str = self._execute_with_rotation(
-                chain, 
-                {
-                    "source_document": source_document[:5000],
-                    "summary_to_evaluate": summary_to_evaluate,
-                    "user_prompt": user_prompt or "Tidak ada prompt.",
-                    "prompt_template": EVALUATION_PROMPT_TEMPLATE 
-                },
-                is_eval=True 
-            )
+    #         # Eksekusi dengan wrapper rotasi
+    #         evaluation_response_str = self._execute_with_rotation(
+    #             chain, 
+    #             {
+    #                 "source_document": source_document[:5000],
+    #                 "summary_to_evaluate": summary_to_evaluate,
+    #                 "user_prompt": user_prompt or "Tidak ada prompt.",
+    #                 "prompt_template": EVALUATION_PROMPT_TEMPLATE 
+    #             },
+    #             is_eval=True 
+    #         )
 
-            # Pembersihan dan Parsing JSON
-            cleaned_str = evaluation_response_str.strip()
-            if cleaned_str.startswith("```json"):
-                cleaned_str = cleaned_str[7:]
-            if cleaned_str.endswith("```"):
-                cleaned_str = cleaned_str[:-3]
+    #         # Pembersihan dan Parsing JSON
+    #         cleaned_str = evaluation_response_str.strip()
+    #         if cleaned_str.startswith("```json"):
+    #             cleaned_str = cleaned_str[7:]
+    #         if cleaned_str.endswith("```"):
+    #             cleaned_str = cleaned_str[:-3]
 
-            evaluation_json = json.loads(cleaned_str.strip())
-            print(">>> JSON parsed successfully")
-            return evaluation_json
+    #         evaluation_json = json.loads(cleaned_str.strip())
+    #         print(">>> JSON parsed successfully")
+    #         return evaluation_json
             
-        except json.JSONDecodeError as je:
-            print(f">>> ERROR: Invalid JSON from LLM")
-            print(f">>> Raw response: {evaluation_response_str[:200]}...")
-            return {
-                "factual_accuracy": {"is_correct": None, "notes": []},
-                "completeness_score": 0,
-                "relevance_score": 0,
-                "final_score": 0.0, 
-                "reasoning": "Gagal memproses respons evaluasi dari LLM (Invalid JSON)."
-            }
-        except Exception as e:
-            print(f">>> ERROR: {type(e).__name__} - {str(e)}")
-            return {
-                "factual_accuracy": {"is_correct": None, "notes": []},
-                "completeness_score": 0,
-                "relevance_score": 0,
-                "final_score": 0.0, 
-                "reasoning": f"Terjadi kesalahan teknis: {str(e)}"
-            }
+    #     except json.JSONDecodeError as je:
+    #         print(f">>> ERROR: Invalid JSON from LLM")
+    #         print(f">>> Raw response: {evaluation_response_str[:200]}...")
+    #         return {
+    #             "factual_accuracy": {"is_correct": None, "notes": []},
+    #             "completeness_score": 0,
+    #             "relevance_score": 0,
+    #             "final_score": 0.0, 
+    #             "reasoning": "Gagal memproses respons evaluasi dari LLM (Invalid JSON)."
+    #         }
+    #     except Exception as e:
+    #         print(f">>> ERROR: {type(e).__name__} - {str(e)}")
+    #         return {
+    #             "factual_accuracy": {"is_correct": None, "notes": []},
+    #             "completeness_score": 0,
+    #             "relevance_score": 0,
+    #             "final_score": 0.0, 
+    #             "reasoning": f"Terjadi kesalahan teknis: {str(e)}"
+    #         }
 
-    def _log_evaluation_result(self, evaluation_result: Dict, context: str):
-        """
-        Helper method untuk logging hasil evaluasi dengan format yang konsisten dan jelas.
-        UPGRADE: Format yang sangat eye-catching agar mudah ditemukan di log.
-        """
-        logging.info("╔" + "="*78 + "╗")
-        logging.info(f"║ {'LLM EVALUATION RESULT':^76} ║")
-        logging.info(f"║ {context:^76} ║")
-        logging.info("╠" + "="*78 + "╣")
+    # def _log_evaluation_result(self, evaluation_result: Dict, context: str):
+    #     """
+    #     Helper method untuk logging hasil evaluasi dengan format yang konsisten dan jelas.
+    #     UPGRADE: Format yang sangat eye-catching agar mudah ditemukan di log.
+    #     """
+    #     logging.info("╔" + "="*78 + "╗")
+    #     logging.info(f"║ {'LLM EVALUATION RESULT':^76} ║")
+    #     logging.info(f"║ {context:^76} ║")
+    #     logging.info("╠" + "="*78 + "╣")
         
-        # Factual Accuracy
-        is_correct = evaluation_result.get('factual_accuracy', {}).get('is_correct')
-        if is_correct is True:
-            logging.info(f"║ Factual Accuracy: CORRECT {' '*55}║")
-        elif is_correct is False:
-            logging.info(f"║ Factual Accuracy: INCORRECT {' '*53}║")
-        else:
-            logging.info(f"║ Factual Accuracy: UNKNOWN {' '*55}║")
+    #     # Factual Accuracy
+    #     is_correct = evaluation_result.get('factual_accuracy', {}).get('is_correct')
+    #     if is_correct is True:
+    #         logging.info(f"║ Factual Accuracy: CORRECT {' '*55}║")
+    #     elif is_correct is False:
+    #         logging.info(f"║ Factual Accuracy: INCORRECT {' '*53}║")
+    #     else:
+    #         logging.info(f"║ Factual Accuracy: UNKNOWN {' '*55}║")
         
-        # Scores
-        completeness = evaluation_result.get('completeness_score', 'N/A')
-        relevance = evaluation_result.get('relevance_score', 'N/A')
-        final_score = evaluation_result.get('final_score', 'N/A')
+    #     # Scores
+    #     completeness = evaluation_result.get('completeness_score', 'N/A')
+    #     relevance = evaluation_result.get('relevance_score', 'N/A')
+    #     final_score = evaluation_result.get('final_score', 'N/A')
         
-        logging.info("╠" + "-"*78 + "╣")
-        logging.info(f"║ Completeness Score: {str(completeness):>3}/5 {' '*54}║")
-        logging.info(f"║ Relevance Score:    {str(relevance):>3}/5 {' '*54}║")
-        logging.info(f"║ Final Score:        {str(final_score):>4} {' '*55}║")
+    #     logging.info("╠" + "-"*78 + "╣")
+    #     logging.info(f"║ Completeness Score: {str(completeness):>3}/5 {' '*54}║")
+    #     logging.info(f"║ Relevance Score:    {str(relevance):>3}/5 {' '*54}║")
+    #     logging.info(f"║ Final Score:        {str(final_score):>4} {' '*55}║")
         
-        # Reasoning
-        logging.info("╠" + "-"*78 + "╣")
-        reasoning = evaluation_result.get('reasoning', 'N/A')
+    #     # Reasoning
+    #     logging.info("╠" + "-"*78 + "╣")
+    #     reasoning = evaluation_result.get('reasoning', 'N/A')
         
-        # Word wrap reasoning untuk muat dalam box
-        max_line_length = 74
-        reasoning_lines = []
-        words = reasoning.split()
-        current_line = ""
+    #     # Word wrap reasoning untuk muat dalam box
+    #     max_line_length = 74
+    #     reasoning_lines = []
+    #     words = reasoning.split()
+    #     current_line = ""
         
-        for word in words:
-            if len(current_line) + len(word) + 1 <= max_line_length:
-                current_line += (" " if current_line else "") + word
-            else:
-                reasoning_lines.append(current_line)
-                current_line = word
+    #     for word in words:
+    #         if len(current_line) + len(word) + 1 <= max_line_length:
+    #             current_line += (" " if current_line else "") + word
+    #         else:
+    #             reasoning_lines.append(current_line)
+    #             current_line = word
         
-        if current_line:
-            reasoning_lines.append(current_line)
+    #     if current_line:
+    #         reasoning_lines.append(current_line)
         
-        logging.info(f"║ Reasoning: {' '*64}║")
-        for line in reasoning_lines[:5]:  # Max 5 lines
-            logging.info(f"║   {line:<74}║")
+    #     logging.info(f"║ Reasoning: {' '*64}║")
+    #     for line in reasoning_lines[:5]:  # Max 5 lines
+    #         logging.info(f"║   {line:<74}║")
         
-        # Notes (if any)
-        notes = evaluation_result.get('factual_accuracy', {}).get('notes', [])
-        if notes:
-            logging.info("╠" + "-"*78 + "╣")
-            logging.info(f"║ Notes: {' '*68}║")
-            for note in notes[:3]:  # Max 3 notes
-                note_short = (note[:70] + "...") if len(note) > 70 else note
-                logging.info(f"║   • {note_short:<72}║")
+    #     # Notes (if any)
+    #     notes = evaluation_result.get('factual_accuracy', {}).get('notes', [])
+    #     if notes:
+    #         logging.info("╠" + "-"*78 + "╣")
+    #         logging.info(f"║ Notes: {' '*68}║")
+    #         for note in notes[:3]:  # Max 3 notes
+    #             note_short = (note[:70] + "...") if len(note) > 70 else note
+    #             logging.info(f"║   • {note_short:<72}║")
         
-        logging.info("╚" + "="*78 + "╝")
-        logging.info("")  # Empty line untuk spacing
+    #     logging.info("╚" + "="*78 + "╝")
+    #     logging.info("")  # Empty line untuk spacing
 
     def generate_duplicate_report(self, df: pd.DataFrame) -> str:
         """Membuat laporan teks mengenai data aset yang terduplikasi."""

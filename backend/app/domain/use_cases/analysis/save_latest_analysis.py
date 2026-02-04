@@ -1,5 +1,10 @@
+import traceback
 from datetime import datetime
+import pytz
+from typing import Callable, Dict, List, Any, Optional
 import pandas as pd
+import logging
+import json
 
 from app.domain.entities.user import User
 from app.domain.entities.history import History
@@ -23,9 +28,9 @@ class SaveLatestAnalysisUseCase:
         self.file_repo = file_repo
         self.preview_state_service = preview_state_service
 
-    def execute(self, current_user: User) -> History:
+    def execute(self, current_user: Optional[User] = None) -> History:
         """
-        Menjalankan logika penyimpanan, dengan nama file yang diperbarui agar lebih mudah dibaca.
+        Menjalankan logika penyimpanan, mendukung user manual maupun sistem (Otomasi).
         """
         latest_result = self.preview_state_service.get()
         if not latest_result or not latest_result.get("data_available"):
@@ -36,11 +41,18 @@ class SaveLatestAnalysisUseCase:
         analysis_time = latest_result["analysis_time"]
         timestamp_str = analysis_time.strftime("%Y%m%d_%H%M%S")
 
-        
-        sheet_name_for_file = options.get('sheet_name') or 'MasterDataAsset'
-        user_role_str = current_user.role.name.capitalize()
+        # --- LOGIKA IDENTITAS (USER VS SYSTEM) ---
+        if current_user:
+            user_email = current_user.email
+            user_role_str = current_user.role.name.capitalize() if current_user.role else "User"
+            prefix_name = "Laporan Manual"
+        else:
+            user_email = "system@phr.internal"
+            user_role_str = "System"
+            prefix_name = "Otomasi Harian"
 
-        base_filename = f"Laporan Manual: {sheet_name_for_file} - oleh {user_role_str}"
+        sheet_name_for_file = options.get('sheet_name') or 'MasterDataAsset'
+        base_filename = f"{prefix_name}: {sheet_name_for_file} - oleh {user_role_str}"
         
         tool_map = {
             'data_overview': 'Data Overview',
@@ -57,7 +69,6 @@ class SaveLatestAnalysisUseCase:
         else:
             analysis_name = base_filename
 
-        # Kembalikan logika pembersihan data tanggal untuk cycle_assets
         cycle_assets_table = latest_result.get("cycle_assets_table", [])
         cleaned_cycle_assets = []
         if cycle_assets_table:
@@ -77,7 +88,7 @@ class SaveLatestAnalysisUseCase:
             timestamp=timestamp_str,
             upload_date=analysis_time,
             cycle_assets=cleaned_cycle_assets, 
-            user_email=current_user.email,
+            user_email=user_email, 
             sheet_name=sheet_name_for_file
         )
         saved_history = self.history_repo.save(new_history_entity)

@@ -126,6 +126,34 @@ class McpServer:
                     "financial_analysis": {"type": "boolean"}
                 }
             },
+            "create_user": {
+                "properties": {
+                    "email": {"type": "string"},
+                    "password": {"type": "string"},
+                    "role": {"type": "string", "enum": ["admin", "user"]}
+                },
+                "required": ["email", "password", "role"]
+            },
+            "delete_user": {
+                "properties": {
+                    "user_id": {"type": "integer"}
+                },
+                "required": ["user_id"]
+            },
+            "update_user_email": {
+                "properties": {
+                    "user_id": {"type": "integer"},
+                    "new_email": {"type": "string"}
+                },
+                "required": ["user_id", "new_email"]
+            },
+            "update_user_role": {
+                "properties": {
+                    "user_id": {"type": "integer"},
+                    "new_role": {"type": "string", "enum": ["admin", "user"]}
+                },
+                "required": ["user_id", "new_role"]
+            },
             "save_analysis": {
                 "properties": {
                     "auth_token": {"type": "string"}
@@ -291,6 +319,10 @@ class McpServer:
             "get_sheet_names": "Mendapatkan daftar nama sheet yang tersedia di Google Sheets.",
             "get_master_data": "Mengambil seluruh data mentah dari sheet tertentu.",
             "get_all_users": "Mengambil daftar seluruh pengguna sistem (hanya untuk Admin).",
+            "create_user": "Membuat akun pengguna baru di sistem dan Firebase (Hanya untuk Admin).",
+            "delete_user": "Menghapus akun pengguna dari database sistem dan Firebase berdasarkan ID (Hanya untuk Admin).",
+            "update_user_email": "Mengubah alamat email pengguna yang sudah ada (Hanya untuk Admin).",
+            "update_user_role": "Mengubah peran/akses pengguna, misalnya dari 'user' menjadi 'admin' (Hanya untuk Admin).",
             "get_history": "Mendapatkan riwayat analisis yang pernah dilakukan.",
             "delete_history": "Menghapus riwayat analisis berdasarkan timestamp.",
             "get_stats_data": "Mengambil data statistik detail untuk halaman Statistik, dengan opsi filter area dan timestamp."
@@ -323,7 +355,11 @@ class McpServer:
             "delete_history": "delete_history",
             "get_sheet_names": "get_sheet_names",
             "get_master_data": "get_master_data", 
-            "get_all_users": "get_all_users",     
+            "get_all_users": "get_all_users",   
+            "create_user": "create_user",         
+            "delete_user": "delete_user",         
+            "update_user_email": "update_user_email", 
+            "update_user_role": "update_user_role",     
             "query_assets": "query_assets",
             "query_resource": "query_resource",
             "get_stats_data": "get_stats_data",

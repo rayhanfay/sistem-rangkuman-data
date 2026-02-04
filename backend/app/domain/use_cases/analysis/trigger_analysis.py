@@ -203,32 +203,33 @@ class TriggerAnalysisUseCase:
                 summary_text = self.document_analyzer.generate_summary(document_text)
                 
                 print(f">>> Summary created: {len(summary_text)} characters")
-                print("-"*80)
-                print(">>> DASHBOARD ANALYSIS - LLM CALL #2: EVALUATING SUMMARY")
-                print("-"*80)
-                
                 report_parts.append(summary_text)
 
+                # --- EVALUASI DASHBOARD DINONAKTIFKAN UNTUK PRODUKSI ---
+                # print("-"*80)
+                # print(">>> DASHBOARD ANALYSIS - LLM CALL #2: EVALUATING SUMMARY")
+                # print("-"*80)
+
                 # LLM Call #2: Evaluate Summary
-                evaluation_result = self.document_analyzer.evaluate_summary_factualness(
-                    source_document=document_text,
-                    summary_to_evaluate=summary_text,
-                    user_prompt="Ringkasan eksekutif dari keseluruhan data untuk dashboard."
-                )
+                # evaluation_result = self.document_analyzer.evaluate_summary_factualness(
+                #     source_document=document_text,
+                #     summary_to_evaluate=summary_text,
+                #     user_prompt="Ringkasan eksekutif dari keseluruhan data untuk dashboard."
+                # )
                 
-                print("\n" + "="*80)
-                print(">>> DASHBOARD EVALUATION RESULT:")
-                print("="*80)
-                is_correct = evaluation_result.get('factual_accuracy', {}).get('is_correct')
-                print(f"Factual Accuracy: {'CORRECT ✓' if is_correct else 'INCORRECT ✗'}")
-                print(f"Completeness: {evaluation_result.get('completeness_score', 'N/A')}/5")
-                print(f"Relevance: {evaluation_result.get('relevance_score', 'N/A')}/5")
-                print(f"Final Score: {evaluation_result.get('final_score', 'N/A')}")
-                print(f"Reasoning: {evaluation_result.get('reasoning', 'N/A')}")
-                notes = evaluation_result.get('factual_accuracy', {}).get('notes', [])
-                if notes:
-                    print(f"Notes: {', '.join(notes)}")
-                print("="*80 + "\n")
+                # print("\n" + "="*80)
+                # print(">>> DASHBOARD EVALUATION RESULT:")
+                # print("="*80)
+                # is_correct = evaluation_result.get('factual_accuracy', {}).get('is_correct')
+                # print(f"Factual Accuracy: {'CORRECT ✓' if is_correct else 'INCORRECT ✗'}")
+                # print(f"Completeness: {evaluation_result.get('completeness_score', 'N/A')}/5")
+                # print(f"Relevance: {evaluation_result.get('relevance_score', 'N/A')}/5")
+                # print(f"Final Score: {evaluation_result.get('final_score', 'N/A')}")
+                # print(f"Reasoning: {evaluation_result.get('reasoning', 'N/A')}")
+                # notes = evaluation_result.get('factual_accuracy', {}).get('notes', [])
+                # if notes:
+                #     print(f"Notes: {', '.join(notes)}")
+                # print("="*80 + "\n")
 
             if 'AREA' in df.columns:
                 if options.insight:

@@ -7,6 +7,7 @@ __pycache__
 venv
 set_admin_role.py
 sync_firebase_db.py
+update_db_roles.py
 database.dbml
 dbml-error.log
 docker-compose.yml
