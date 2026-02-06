@@ -58,7 +58,12 @@ class QueryAssetsUseCase:
         # 2. Fetch Data
         df = self.asset_data_source.fetch_data(target_sheet, spreadsheet_id=target_id)
         if df.empty: 
-            return [{"status": f"Database aset pada sumber {source} ({target_sheet}) kosong."}]
+            return [{
+                "status": "DATA_TIDAK_DITEMUKAN",
+                "requested_sheet": target_sheet,
+                "source_used": source.upper(),
+                "message": f"Sheet '{target_sheet}' tidak ditemukan atau kosong di link {source.upper()}."
+            }]
 
         # 3. Normalisasi Nama Kolom DataFrame menjadi UPPERCASE
         df.columns = [str(col).strip().upper() for col in df.columns]

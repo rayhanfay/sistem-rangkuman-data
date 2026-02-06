@@ -4,8 +4,9 @@ import { useToast } from '../contexts/ToastContext';
 import { useAuth } from '../hooks/useAuth';
 import { useMcp } from '../contexts/McpProvider';
 import { getAuth, getIdToken } from "firebase/auth";
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, LayoutDashboard } from 'lucide-react';
 import Card from '../components/ui/Card';
+import Button from '../components/ui/Button';
 import LoadingOverlay from '../components/common/LoadingOverlay';
 import { useAnalysis } from '../hooks/useAnalysis';
 import DashboardHeader from '../components/dashboard/DashboardHeader';
@@ -32,6 +33,7 @@ const Home = () => {
             if (isInitialLoad.current) setLoading(true);
             return;
         }
+
         setError('');
         if (isInitialLoad.current || isRefresh) setLoading(true); else setIsFiltering(true);
 
@@ -51,7 +53,6 @@ const Home = () => {
                 })
             ]);
             
-            // Simpan ke state object
             setAvailableSheets({
                 master: masterSheetsResult.content || [],
                 siklus: siklusSheetsResult.content || []
@@ -60,23 +61,23 @@ const Home = () => {
             const dashboardData = dashboardResult.content;
             
             if (!dashboardData.data_available) {
-                throw new Error(dashboardData.message || "Belum ada data untuk ditampilkan.");
-            }
-            setData(dashboardData);
-            if(dashboardData.available_areas) {
-                setAvailableAreas(['Semua Area', ...dashboardData.available_areas.filter(a => a !== 'Semua Area')]);
+                console.log("Info: Belum ada data analisis yang tersedia.");
+                setData(null);
+            } else {
+                setData(dashboardData);
+                if(dashboardData.available_areas) {
+                    setAvailableAreas(['Semua Area', ...dashboardData.available_areas.filter(a => a !== 'Semua Area')]);
+                }
             }
 
         } catch (err) {
             console.error("Fetch Error:", err);
-            setData(null);
             setError(err.message);
-            showToast(err.message, 'error');
         } finally {
             if (isInitialLoad.current || isRefresh) setLoading(false); else setIsFiltering(false);
             if (isInitialLoad.current) isInitialLoad.current = false;
         }
-    }, [selectedArea, mcpService, mcpStatus, showToast]);
+    }, [selectedArea, mcpService, mcpStatus]);
 
     const refreshData = useCallback(() => fetchData(true), [fetchData]);
 
@@ -139,14 +140,31 @@ const Home = () => {
                 onRefresh={refreshData}
             />
 
-            {error || !data ? (
+            {/* AREA KONTEN UTAMA */}
+            {error ? (
+                // Tampilan jika server error/mati
                 <Card className="p-8 text-center bg-red-50 border-red-200">
                     <AlertCircle className="h-16 w-16 text-brand-red mx-auto mb-4" />
-                    <h2 className="text-2xl font-bold text-gray-800 mb-2">Gagal Memuat Data Dashboard</h2>
-                    <p className="text-gray-600">{error}</p>
-                    <Button onClick={refreshData} className="mt-4" variant="outline">
-                        Coba Muat Ulang
-                    </Button>
+                    <h2 className="text-2xl font-bold text-gray-800 mb-2">Gangguan Koneksi</h2>
+                    <p className="text-gray-600 mb-4">{error}</p>
+                    <Button onClick={refreshData} variant="outline">Coba Muat Ulang</Button>
+                </Card>
+            ) : !data ? (
+                // Tampilan jika data kosong (Belum ada rangkuman)
+                <Card className="p-12 text-center border-dashed border-2 border-gray-300 bg-gray-50">
+                    <LayoutDashboard className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                    <h2 className="text-xl font-semibold text-gray-700 mb-2">Belum Ada Rangkuman Aset</h2>
+                    <p className="text-gray-500 max-w-md mx-auto mb-6">
+                        Sistem belum mendeteksi adanya hasil analisis data. 
+                        Silakan pilih sheet pada dropdown di atas dan klik <strong>"Mulai Analisis"</strong> untuk membuat rangkuman pertama Anda.
+                    </p>
+                    <div className="flex justify-center">
+                         <div className="">
+                            <Button onClick={() => window.scrollTo({top: 0, behavior: 'smooth'})} variant="primary">
+                                Pilih Data Sumber Di Atas
+                            </Button>
+                         </div>
+                    </div>
                 </Card>
             ) : (
                 <DashboardStats data={data} isFiltering={isFiltering} />

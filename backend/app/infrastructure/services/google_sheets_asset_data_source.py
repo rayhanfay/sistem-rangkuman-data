@@ -14,7 +14,7 @@ from app.domain.repositories.asset_data_source import IAssetDataSource
 class GoogleSheetsAssetDataSource(IAssetDataSource):
     """
     Implementasi IAssetDataSource yang mendukung multi-spreadsheet (Master & Siklus)
-    dan penanganan nama sheet dinamis dengan proteksi Length Mismatch.
+    dan penanganan nama sheet dinamis dengan proteksi Length Mismatch serta Graceful Error Handling.
     """
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
     SERVICE_ACCOUNT_FILE = 'credentials.json'
@@ -75,17 +75,15 @@ class GoogleSheetsAssetDataSource(IAssetDataSource):
 
     def fetch_data(self, sheet_name: Optional[str], spreadsheet_id: Optional[str] = None) -> pd.DataFrame:
         """
-        Mengambil data dengan proteksi otomatis terhadap perbedaan jumlah kolom (Length Mismatch).
+        Mengambil data dari Google Sheets. 
+        Jika sheet tidak ada, kembalikan DataFrame kosong tanpa melempar error teknis.
         """
         if not self.sheet:
             raise ConnectionError("Service Google Sheets tidak aktif.")
         
         target_sheet = sheet_name or 'MASTER-SHEET'
         target_id = spreadsheet_id or self.master_spreadsheet_id
-        
-        # Ambil range yang luas (A sampai Z atau lebih jika perlu)
         range_name = f"'{target_sheet}'!A:Z"
-        logging.info(f"[FETCH] Membaca Spreadsheet: {target_id} | Sheet: {target_sheet}")
         
         try:
             result = self.sheet.values().get(
@@ -94,51 +92,38 @@ class GoogleSheetsAssetDataSource(IAssetDataSource):
             
             values = result.get('values', [])
             if not values:
-                logging.warning(f"Sheet '{target_sheet}' kosong.")
                 return pd.DataFrame()
 
             # 1. Cari baris Header
             header, header_row_index = self._find_header_row(values)
             if header_row_index == -1:
-                logging.warning(f"Header kunci tidak ditemukan di sheet '{target_sheet}'.")
                 return pd.DataFrame()
 
-            # 2. Proses Nama Kolom agar Unik
+            # 2. Proses Nama Kolom
             unique_header = self._make_unique_columns([' '.join(str(col).strip().split()) for col in header])
             num_expected_cols = len(unique_header)
 
-            # 3. Proses Baris Data (setelah index header)
+            # 3. Normalisasi baris data
             data_rows = values[header_row_index + 1:]
-            
-            # 4. PERBAIKAN KRITIS: Normalisasi panjang baris
-            # Google API memotong sel kosong di akhir baris. Kita harus menambahkannya kembali.
             normalized_data = []
             for row in data_rows:
-                # Lewati baris yang benar-benar kosong
-                if not any(str(cell).strip() for cell in row):
-                    continue
-                
-                # Jika baris lebih pendek dari header, tambahkan None (sel kosong)
+                if not any(str(cell).strip() for cell in row): continue
                 if len(row) < num_expected_cols:
                     row.extend([None] * (num_expected_cols - len(row)))
-                
-                # Jika baris lebih panjang dari header, potong agar pas
                 normalized_data.append(row[:num_expected_cols])
             
             if not normalized_data:
-                logging.warning(f"Tidak ada data valid ditemukan di bawah header sheet '{target_sheet}'.")
                 return pd.DataFrame()
 
-            # 5. Buat DataFrame
-            df = pd.DataFrame(normalized_data, columns=unique_header)
-            
-            logging.info(f"[SUCCESS] Berhasil memuat {len(df)} baris dari {target_sheet} (Kolom: {num_expected_cols}).")
-            return df
+            return pd.DataFrame(normalized_data, columns=unique_header)
             
         except Exception as e:
-            logging.error(f"[ERROR] fetch_data failed: {str(e)}")
-            # Berikan error yang lebih informatif untuk debugging
-            raise RuntimeError(f"Gagal memproses sheet '{target_sheet}': {str(e)}")
+            error_msg = str(e)
+            if "Unable to parse range" in error_msg or "400" in error_msg:
+                logging.warning(f"[INFO] Sheet '{target_sheet}' tidak ditemukan di ID: {target_id}. Mengembalikan data kosong.")
+                return pd.DataFrame()
+            
+            raise RuntimeError(f"Gagal akses Google API: {error_msg}")
 
     def _find_header_row(self, values: List[List[str]]) -> Tuple[List[str], int]:
         """Mencari baris header berdasarkan kolom kunci (NO ASSET & KONDISI)."""
@@ -154,9 +139,8 @@ class GoogleSheetsAssetDataSource(IAssetDataSource):
         seen = {}
         new_columns = []
         for col in columns:
-            if not col: # Jika nama kolom kosong, beri nama default
+            if not col:
                 col = "UNTITLED_COLUMN"
-                
             original_col = col
             count = seen.get(original_col, 0)
             if count > 0:
