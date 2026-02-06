@@ -1,14 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from typing import Optional
-from starlette.responses import StreamingResponse
+import json
 import logging
 import traceback
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
+from starlette.responses import StreamingResponse
 
 # Dependencies yang relevan
 from app.dependencies import (
     get_download_file_use_case,
     get_document_analyzer,
-    get_resource_list_use_case  # ← TAMBAHKAN INI
+    get_resource_list_use_case
 )
 from app.domain.use_cases.analysis.get_download_file import GetDownloadFileUseCase
 from app.infrastructure.services.document_analyzer import DocumentAnalyzer
@@ -20,7 +21,6 @@ from app.domain.entities.user import User as UserEntity
 
 # --- Inisialisasi Router ---
 router = APIRouter(prefix="/api/web", tags=["Web API (Utilitas)"])
-
 
 # === Endpoint Kritis yang WAJIB Dipertahankan ===
 
@@ -58,31 +58,49 @@ async def llm_router(
     request: LlmRouterRequest,
     user: UserEntity = Depends(auth_required),
     doc_analyzer: DocumentAnalyzer = Depends(get_document_analyzer),
-    resource_use_case = Depends(get_resource_list_use_case)  # ← TAMBAHKAN INI
+    resource_use_case = Depends(get_resource_list_use_case)
 ):
     """
     Endpoint aman untuk meminta LLM memilih tool yang sesuai.
-    PERBAIKAN: Menambahkan resources list ke context LLM.
+    PERBAIKAN: Menambahkan resources list ke context LLM agar bisa membaca data dari sheet lain.
+    PROTEKSI: Mencegah eksekusi trigger_analysis melalui Custom Analysis.
     """
     try:
-        # FIX #1: Dapatkan daftar resources yang tersedia
+        # 1. Dapatkan daftar resources (file hasil analisis tersimpan) yang tersedia
         resources_list = []
         try:
             resources_result = resource_use_case.execute()
             resources_list = resources_result if isinstance(resources_result, list) else []
         except Exception as e:
             logging.warning(f"[LLM-ROUTER] Failed to fetch resources: {e}")
-            # Lanjutkan tanpa resources jika gagal
+            # Lanjutkan tanpa resources jika gagal agar chat tidak crash
         
-        # FIX #2: Kirim resources ke LLM
-        tool_choice = await doc_analyzer.decide_tool_to_use(
+        # 2. Minta LLM memutuskan tool mana yang harus dipanggil
+        tool_choice_str = await doc_analyzer.decide_tool_to_use(
             user_prompt=request.user_prompt, 
             tools=request.tools, 
             conversation_history=request.conversation_history,
-            resources=resources_list  # ← PARAMETER YANG HILANG!
+            resources=resources_list
         )
-        
-        return {"tool_choice": tool_choice}
+
+        # 3. PERBAIKAN & PROTEKSI: Cek apakah LLM mencoba menjalankan trigger_analysis
+        try:
+            tool_data = json.loads(tool_choice_str)
+            if tool_data.get("tool_name") == "trigger_analysis":
+                logging.warning(f"[SECURITY] User {user.email} mencoba memicu trigger_analysis melalui chat. Permintaan diblokir.")
+                
+                # Override pilihan tool menjadi 'tidak_ada_tool' dengan pesan edukatif
+                blocked_choice = {
+                    "tool_name": "tidak_ada_tool",
+                    "arguments": {},
+                    "message": "Maaf, fitur 'Analisis Dashboard' hanya dapat dijalankan melalui tombol utama di Dashboard untuk menjaga performa sistem. Anda tetap bisa menanyakan statistik data melalui chat ini."
+                }
+                return {"tool_choice": json.dumps(blocked_choice)}
+                
+        except json.JSONDecodeError:
+            logging.error(f"[LLM-ROUTER] LLM returned invalid JSON: {tool_choice_str}")
+            raise HTTPException(status_code=500, detail="LLM memberikan respon format yang salah.")   
+        return {"tool_choice": tool_choice_str}
         
     except ValueError as e:
         # Error dari quota exhausted atau validasi

@@ -243,7 +243,6 @@ def get_resources_use_case(
 def get_prompts_use_case() -> GetPromptsUseCase:
     return GetPromptsUseCase()
 
-#  TAMBAHAN BARU: Provider untuk get_resource_list_use_case
 def get_resource_list_use_case(
     file_repo: IFileRepository = Depends(get_file_repository)
 ) -> GetResourcesUseCase:

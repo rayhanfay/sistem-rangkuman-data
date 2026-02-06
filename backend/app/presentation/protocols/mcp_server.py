@@ -118,7 +118,16 @@ class McpServer:
             },
             "trigger_analysis": {
                 "properties": {
-                    "sheet_name": {"type": "string", "default": "MasterDataAsset"},
+                    "source": {
+                        "type": "string", 
+                        "enum": ["master", "siklus"], 
+                        "default": "master",
+                        "description": "Sumber spreadsheet yang akan dianalisis. 'master' untuk link Master (Pusat), 'siklus' untuk link Siklus (Lapangan)."
+                    },
+                    "sheet_name": {
+                        "type": "string", 
+                        "description": "Nama sheet yang akan dianalisis. Default Master: MASTER-SHEET. Default Siklus: Sheet1."
+                    },
                     "data_overview": {"type": "boolean"},
                     "summarize": {"type": "boolean"},
                     "insight": {"type": "boolean"},
@@ -249,7 +258,12 @@ class McpServer:
             },
             "query_resource": {
                 "properties": {
-                    "resource_name": {"type": "string"},
+                    "resource_name": {
+                        "type": "string",
+                        "description": "Nama file JSON dari daftar resource (misal: data_MASTER-SHEET_20260205_080000.json)"
+                    },
+                    "no_asset": {"type": "string", "description": "Nomor unik aset."},
+                    "nama_aset": {"type": "string", "description": "Nama perangkat (SERVER, PC, dll)."},
                     "area": {"type": "string"},
                     "kondisi": {"type": "string"}
                 },
@@ -268,14 +282,29 @@ class McpServer:
                 }
             },
             "get_master_data": {
-            "properties": {
-                "sheet_name": {"type": "string", "default": "MasterDataAsset"}
-            }
+                "properties": {
+                    "source": {
+                        "type": "string", 
+                        "enum": ["master", "siklus"], 
+                        "default": "master",
+                        "description": "Pilih sumber data yang ingin diambil."
+                    },
+                    "sheet_name": {"type": "string", "description": "Nama sheet spesifik (Master default: MASTER-SHEET)."}
+                }
             },
             "get_all_users": {
                 "properties": {}
             },
-            "get_sheet_names": {"properties": {}},
+            "get_sheet_names": {
+                "properties": {
+                    "source": {
+                        "type": "string", 
+                        "enum": ["master", "siklus"], 
+                        "default": "master",
+                        "description": "Lihat daftar sheet dari link Master atau Siklus."
+                    }
+                }
+            },
             "get_history": {"properties": {}},
             "delete_history": {
                 "properties": {
@@ -290,7 +319,6 @@ class McpServer:
             if tool_name not in schemas: 
                 raise ValueError(f"Tool '{tool_name}' unknown.")
             
-            # --- PERBAIKAN: Auto-Fix untuk Task Breakdown ---
             if tool_name == "query_assets" and arguments.get("task") == "breakdown":
                 if not arguments.get("group_by_field"):
                     if arguments.get("kode_lokasi_sap"):
@@ -311,13 +339,13 @@ class McpServer:
     async def _handle_tools_list(self, params: dict, db_session, websocket: WebSocket) -> dict:
         tool_schemas = self._get_tool_schemas()
         descriptions = {
-            "trigger_analysis": "HANYA digunakan untuk merefresh atau membuat ulang Dashboard Analisis utama secara keseluruhan. Tool ini tidak memberikan teks jawaban langsung ke chat.",
+            "trigger_analysis": "HANYA digunakan untuk merefresh atau membuat ulang Dashboard Analisis utama secara keseluruhan. MENDUKUNG pemilihan sumber 'master' atau 'siklus'. Tool ini tidak memberikan teks jawaban langsung ke chat.",
             "query_assets": "Mencari, memfilter, atau membuat breakdown statistik dari data aset utama. PENTING: Untuk area Dumai gunakan 'COASTAL', untuk kondisi rusak gunakan 'Rusak Berat, Rusak Ringan'.",
             "query_resource": "Mencari data spesifik dari hasil analisis (file JSON) yang sudah disimpan sebelumnya.",
             "save_analysis": "Menyimpan hasil analisis terbaru ke dalam database riwayat.",
             "get_dashboard_data": "Mengambil data ringkasan cepat untuk tampilan dashboard.",
-            "get_sheet_names": "Mendapatkan daftar nama sheet yang tersedia di Google Sheets.",
-            "get_master_data": "Mengambil seluruh data mentah dari sheet tertentu.",
+            "get_sheet_names": "Mendapatkan daftar nama sheet yang tersedia di Google Sheets (Master/Siklus).",
+            "get_master_data": "Mengambil seluruh data mentah dari sheet tertentu pada sumber Master atau Siklus.",
             "get_all_users": "Mengambil daftar seluruh pengguna sistem (hanya untuk Admin).",
             "create_user": "Membuat akun pengguna baru di sistem dan Firebase (Hanya untuk Admin).",
             "delete_user": "Menghapus akun pengguna dari database sistem dan Firebase berdasarkan ID (Hanya untuk Admin).",
@@ -355,11 +383,11 @@ class McpServer:
             "delete_history": "delete_history",
             "get_sheet_names": "get_sheet_names",
             "get_master_data": "get_master_data", 
-            "get_all_users": "get_all_users",   
-            "create_user": "create_user",         
-            "delete_user": "delete_user",         
+            "get_all_users": "get_all_users",    
+            "create_user": "create_user",          
+            "delete_user": "delete_user",          
             "update_user_email": "update_user_email", 
-            "update_user_role": "update_user_role",     
+            "update_user_role": "update_user_role",      
             "query_assets": "query_assets",
             "query_resource": "query_resource",
             "get_stats_data": "get_stats_data",
@@ -381,7 +409,6 @@ class McpServer:
                 })
 
             def run_analysis_sync():
-                # Buat session baru khusus untuk thread ini
                 thread_db_session = SessionLocal()
                 try:
                     use_case = self.container.get_use_case("trigger_analysis", thread_db_session)
@@ -393,7 +420,6 @@ class McpServer:
             def send_progress_update_sync(progress: Dict):
                 asyncio.run_coroutine_threadsafe(send_progress_update(progress), loop)
 
-            # Jalankan di thread pool agar tidak memblokir event loop utama
             loop.run_in_executor(None, run_analysis_sync)
             return None
 
@@ -407,7 +433,6 @@ class McpServer:
 
         try:
             use_case = self.container.get_use_case(use_case_name, db_session)
-            # Handle sync execution
             result = use_case.execute(**use_case_args)
             
             # JSON Serializer untuk tipe data kompleks

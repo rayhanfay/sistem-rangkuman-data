@@ -1,7 +1,9 @@
+import os
 from typing import Tuple, Optional
 from io import BytesIO
 from sqlalchemy.orm import Session
 import pandas as pd
+import logging
 
 from app.domain.repositories.asset_data_source import IAssetDataSource
 from app.infrastructure.services.download_service import DownloadService
@@ -35,7 +37,7 @@ class GetDownloadFileUseCase:
             if df.empty:
                 raise ValueError(f"Tidak ada data sementara untuk diunduh dari sheet '{sheet_name or 'Default'}'.")
             
-            filename_part = sheet_name if sheet_name and sheet_name.strip() else 'MasterDataAsset'
+            filename_part = sheet_name if sheet_name and sheet_name.strip() else 'MASTER-SHEET'
 
         elif source == 'history':
             if not timestamp:
@@ -48,12 +50,19 @@ class GetDownloadFileUseCase:
         else:
             raise ValueError("Sumber data tidak valid. Gunakan 'temporary' atau 'history'.")
 
-        if 'AREA' in df.columns:
-            df.columns = [str(col).strip().upper() for col in df.columns]
-            if area and area != "Semua Area":
-                df = df[df['AREA'] == area].copy()
+        # 2. Normalisasi Kolom dan Filtering Area
+        df.columns = [str(col).strip().upper() for col in df.columns]
+        
+        if area and area != "Semua Area" and 'AREA' in df.columns:
+            df = df[df['AREA'] == area].copy()
         
         if df.empty:
-            raise ValueError(f"Tidak ada data yang cocok dengan area '{area}'.")
+            raise ValueError(f"Tidak ada data yang cocok dengan kriteria area '{area}'.")
+
+        # --- PERBAIKAN UTAMA: Kembalikan Label (Rp) untuk File Unduhan ---
+        for col in df.columns:
+            if 'NILAI ASET' in col:
+                df.rename(columns={col: 'NILAI ASET (Rp)'}, inplace=True)
+                break
 
         return self.download_service.create_file_buffer(df, file_format, filename_part)

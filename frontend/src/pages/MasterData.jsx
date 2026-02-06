@@ -30,7 +30,7 @@ const MasterData = () => {
         try {
             const result = await mcpService.call('tools/call', {
                 name: 'get_master_data',
-                arguments: { sheet_name: 'MasterDataAsset' }
+                arguments: { sheet_name: 'MASTER-SHEET' }
             });
             setMasterData(result.content);
         } catch (err) {
@@ -115,7 +115,7 @@ const MasterData = () => {
                 <div>
                     <h1 className="text-3xl font-bold">Master Data Aset</h1>
                     <p className="text-text-secondary mt-1">
-                        Tampilan data mentah langsung dari Google Spreadsheet sheet 'MasterDataAsset'.
+                        Tampilan data mentah langsung dari Google Spreadsheet sheet 'MASTER-SHEET'.
                     </p>
                 </div>
                 <Button onClick={fetchData} variant="outline"><RefreshCw className="mr-2 h-4 w-4" /> Refresh Data</Button>

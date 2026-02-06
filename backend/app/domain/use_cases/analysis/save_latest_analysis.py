@@ -51,8 +51,10 @@ class SaveLatestAnalysisUseCase:
             user_role_str = "System"
             prefix_name = "Otomasi Harian"
 
-        sheet_name_for_file = options.get('sheet_name') or 'MasterDataAsset'
-        base_filename = f"{prefix_name}: {sheet_name_for_file} - oleh {user_role_str}"
+        source_type = options.get('source', 'master').upper() # SIKLUS atau MASTER
+        sheet_name_for_file = options.get('sheet_name') or 'MASTER-SHEET'
+        
+        base_filename = f"{prefix_name} [{source_type}]: {sheet_name_for_file}"
         
         tool_map = {
             'data_overview': 'Data Overview',
@@ -94,7 +96,7 @@ class SaveLatestAnalysisUseCase:
         saved_history = self.history_repo.save(new_history_entity)
 
         safe_sheet_name = sheet_name_for_file.replace(" ", "_")
-        new_json_filename = f"data_{safe_sheet_name}_{timestamp_str}.json"
+        new_json_filename = f"data_{source_type.lower()}_{safe_sheet_name}_{timestamp_str}.json"
         
         raw_json = df.to_json(orient='records', date_format='iso')
         
@@ -107,7 +109,7 @@ class SaveLatestAnalysisUseCase:
         )
         self.file_repo.save(json_file_entity)
         
-        print(f"[DB-SAVE] Berhasil menyimpan analisis ke riwayat: {new_json_filename}")
+        print(f"[DB-SAVE] Berhasil menyimpan analisis {source_type} ke riwayat: {new_json_filename}")
         
         self.preview_state_service.clear()
         print("[INFO] State pratinjau telah dibersihkan setelah penyimpanan.")

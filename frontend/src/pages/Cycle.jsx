@@ -129,7 +129,7 @@ const Cycle = () => {
             source: data.is_temporary ? 'temporary' : 'history',
             timestamp: data.is_temporary ? null : data.timestamp,
             area: filterArea,
-            sheet_name: data.is_temporary ? (data.sheet_name || 'MasterDataAsset') : null,
+            sheet_name: data.is_temporary ? (data.sheet_name || 'MASTER-SHEET') : null,
         };
         apiService.downloadAnalyzedData(params)
             .catch(err => showToast(`Gagal mengunduh file: ${err.message}`, 'error'));

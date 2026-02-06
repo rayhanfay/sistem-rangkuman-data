@@ -104,7 +104,7 @@ class GetStatsDataUseCase:
             "table_data": df.to_dict(orient='records'),
             "chart_data": self.chart_service.create_chart_data(df),
             "timestamp": "Analisis Saat Ini (Belum Disimpan)",
-            "sheet_name": preview_data["options"].get('sheet_name') or 'MasterDataAsset', 
+            "sheet_name": preview_data["options"].get('sheet_name') or 'MASTER-SHEET', 
             "available_areas": available_areas,
             "cycle_assets_table": preview_data["cycle_assets_table"],
             "is_temporary": True

@@ -45,7 +45,7 @@ export const useAnalysis = (dashboardData, refreshData, user) => {
         
     }, [mcpService, mcpStatus, showToast]);
 
-    const handleTriggerAnalysis = useCallback(async (sheetName) => {
+    const handleTriggerAnalysis = useCallback(async (sheetName, source = 'master') => {
         if (mcpStatus !== 'connected') { 
             showToast('Koneksi ke server belum siap.', 'error');
             return;
@@ -54,7 +54,11 @@ export const useAnalysis = (dashboardData, refreshData, user) => {
         try {
             mcpService.call('tools/call', { 
                 name: 'trigger_analysis', 
-                arguments: { ...analysisOptions, sheet_name: sheetName || 'MasterDataAsset' } 
+                arguments: { 
+                    ...analysisOptions, 
+                    sheet_name: sheetName,
+                    source: source // 'master' atau 'siklus'
+                } 
             });
         } catch (err) {
             showToast(err.message || 'Gagal memulai analisis.', 'error');
@@ -83,20 +87,26 @@ export const useAnalysis = (dashboardData, refreshData, user) => {
         } finally {
             setIsSaving(false);
         }
-    }, [mcpService, mcpStatus, showToast, user]); 
+    }, [mcpService, mcpStatus, showToast]); 
 
     const handleDownload = useCallback(async (format, filters) => {
         if (!dashboardData?.data_available) {
             showToast("Tidak ada data untuk diunduh.", "error"); 
             return;
         }
+
+        const isTemporary = dashboardData.is_temporary;
+        
+        const currentSheetFromData = dashboardData.options?.sheet_name;
+
         const params = {
             file_format: format,
-            source: dashboardData.is_temporary ? 'temporary' : 'history',
-            timestamp: dashboardData.is_temporary ? null : dashboardData.timestamp,
+            source: isTemporary ? 'temporary' : 'history',
+            timestamp: isTemporary ? null : dashboardData.timestamp,
             area: filters.selectedArea,
-            sheet_name: dashboardData.is_temporary ? (filters.sheetName || 'MasterDataAsset') : null,
+            sheet_name: isTemporary ? (currentSheetFromData || 'MASTER-SHEET') : null,
         };
+
         try {
             await apiService.downloadAnalyzedData(params);
         } catch (err) {

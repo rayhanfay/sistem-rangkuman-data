@@ -1,8 +1,9 @@
 import os
 import pandas as pd
 import time
-from typing import List
 import json
+import logging
+from typing import List, Optional, Tuple
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from google.api_core.exceptions import GoogleAPIError
@@ -12,7 +13,8 @@ from app.domain.repositories.asset_data_source import IAssetDataSource
 
 class GoogleSheetsAssetDataSource(IAssetDataSource):
     """
-    Implementasi konkret dari IAssetDataSource yang mengambil data dari Google Sheets.
+    Implementasi IAssetDataSource yang mendukung multi-spreadsheet (Master & Siklus)
+    dan penanganan nama sheet dinamis dengan proteksi Length Mismatch.
     """
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
     SERVICE_ACCOUNT_FILE = 'credentials.json'
@@ -21,100 +23,125 @@ class GoogleSheetsAssetDataSource(IAssetDataSource):
 
     def __init__(self):
         self.sheet = self._initialize_service()
+        # Mengambil ID dari Environment Variables
+        self.master_spreadsheet_id = os.getenv("GOOGLE_SHEET_ID_MASTER") or settings.GOOGLE_SHEET_ID
+        self.siklus_spreadsheet_id = os.getenv("GOOGLE_SHEET_ID_SIKLUS")
 
     def _initialize_service(self):
-        """Menginisialisasi koneksi ke Google Sheets API via Env Var."""
+        """Menginisialisasi koneksi ke Google Sheets API."""
         try:
-            # Ambil string JSON dari environment variable
             creds_json = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
             
             if creds_json:
-                # Jika ada di Env Var (untuk Produksi/Azure)
                 creds_info = json.loads(creds_json)
                 creds = service_account.Credentials.from_service_account_info(
                     creds_info, scopes=self.SCOPES
                 )
-                print("[INFO] Google Sheets initialized via Environment Variable.")
+                logging.info("[INFO] Google Sheets service initialized via Env Var.")
             elif os.path.exists(self.SERVICE_ACCOUNT_FILE):
-                # Fallback ke file lokal (untuk Development)
                 creds = service_account.Credentials.from_service_account_file(
                     self.SERVICE_ACCOUNT_FILE, scopes=self.SCOPES
                 )
-                print("[INFO] Google Sheets initialized via local file.")
+                logging.info("[INFO] Google Sheets service initialized via local file.")
             else:
-                raise FileNotFoundError("Google Credentials tidak ditemukan di Env Var maupun file lokal.")
+                raise FileNotFoundError("Credentials Google tidak ditemukan.")
             
-            service = build('sheets', 'v4', credentials=creds)
+            service = build('sheets', 'v4', credentials=creds, cache_discovery=False)
             return service.spreadsheets()
         except Exception as e:
-            print(f"[FATAL] Gagal menginisialisasi Google Sheets service: {e}")
+            logging.error(f"[FATAL] Gagal inisialisasi Google Sheets: {e}")
             raise
 
-    def get_sheet_names(self) -> List[str]:
-        """Mengambil semua nama sheet dari spreadsheet yang dikonfigurasi."""
+    def get_sheet_names(self, spreadsheet_id: Optional[str] = None) -> List[str]:
+        """Mengambil semua nama sheet dari ID spreadsheet tertentu."""
         if not self.sheet:
-            raise ConnectionError("Google Sheets service tidak terinisialisasi.")
+            raise ConnectionError("Service Google Sheets tidak aktif.")
+        
+        target_id = spreadsheet_id or self.master_spreadsheet_id
         
         retries = 3
-        delay = 2
         for attempt in range(retries):
             try:
-                sheet_metadata = self.sheet.get(spreadsheetId=settings.GOOGLE_SHEET_ID).execute()
+                sheet_metadata = self.sheet.get(spreadsheetId=target_id).execute()
                 sheets = sheet_metadata.get('sheets', [])
                 return [sheet.get('properties', {}).get('title', '') for sheet in sheets]
             except GoogleAPIError as e:
-                print(f"[API-ERROR] Google API Error pada percobaan {attempt + 1}: {e}")
+                logging.error(f"[API-ERROR] Percobaan {attempt + 1} gagal: {e}")
                 if attempt < retries - 1:
-                    time.sleep(delay)
+                    time.sleep(2)
                 else:
-                    raise ConnectionError(f"Gagal mengambil daftar sheet setelah {retries} percobaan.")
+                    raise ConnectionError(f"Gagal mengambil nama sheet dari ID {target_id}")
         return []
 
-    def fetch_data(self, sheet_name: str | None) -> pd.DataFrame:
-        """Mengambil data dari sheet tertentu dan mengubahnya menjadi DataFrame."""
+    def fetch_data(self, sheet_name: Optional[str], spreadsheet_id: Optional[str] = None) -> pd.DataFrame:
+        """
+        Mengambil data dengan proteksi otomatis terhadap perbedaan jumlah kolom (Length Mismatch).
+        """
         if not self.sheet:
-            raise ConnectionError("Google Sheets service tidak terinisialisasi.")
+            raise ConnectionError("Service Google Sheets tidak aktif.")
         
-        target_sheet = sheet_name or 'MasterDataAsset'
+        target_sheet = sheet_name or 'MASTER-SHEET'
+        target_id = spreadsheet_id or self.master_spreadsheet_id
+        
+        # Ambil range yang luas (A sampai Z atau lebih jika perlu)
         range_name = f"'{target_sheet}'!A:Z"
-        print(f"[INFO] Mengambil data dari Google Sheet: {range_name}...")
+        logging.info(f"[FETCH] Membaca Spreadsheet: {target_id} | Sheet: {target_sheet}")
         
         try:
             result = self.sheet.values().get(
-                spreadsheetId=settings.GOOGLE_SHEET_ID, range=range_name
+                spreadsheetId=target_id, range=range_name
             ).execute()
             
             values = result.get('values', [])
             if not values:
-                print(f"[WARN] Sheet '{target_sheet}' kosong.")
+                logging.warning(f"Sheet '{target_sheet}' kosong.")
                 return pd.DataFrame()
 
+            # 1. Cari baris Header
             header, header_row_index = self._find_header_row(values)
             if header_row_index == -1:
-                print(f"[WARN] Header dengan kolom kunci tidak ditemukan di sheet '{target_sheet}'.")
+                logging.warning(f"Header kunci tidak ditemukan di sheet '{target_sheet}'.")
                 return pd.DataFrame()
 
-            data_rows = values[header_row_index + 1:]
-            clean_data = [row for row in data_rows if any(str(cell).strip() for cell in row)]
-            if not clean_data:
-                return pd.DataFrame()
-
+            # 2. Proses Nama Kolom agar Unik
             unique_header = self._make_unique_columns([' '.join(str(col).strip().split()) for col in header])
-            df = pd.DataFrame(clean_data)
-            
-            num_header_cols = len(unique_header)
-            df = df.iloc[:, :num_header_cols]
-            
-            df.columns = unique_header
-            print(f"[INFO] DataFrame dibuat dengan {len(df)} baris dari sheet '{target_sheet}'.")
-            return df
-        except GoogleAPIError as e:
-            raise ConnectionError(f"Gagal mengakses Google Sheet '{target_sheet}': {e.reason}")
-        except Exception as e:
-            raise RuntimeError(f"Terjadi error tak terduga saat mengambil data: {e}")
+            num_expected_cols = len(unique_header)
 
-    def _find_header_row(self, values: List[List[str]]):
-        """Mencari baris yang berisi kolom kunci sebagai header."""
+            # 3. Proses Baris Data (setelah index header)
+            data_rows = values[header_row_index + 1:]
+            
+            # 4. PERBAIKAN KRITIS: Normalisasi panjang baris
+            # Google API memotong sel kosong di akhir baris. Kita harus menambahkannya kembali.
+            normalized_data = []
+            for row in data_rows:
+                # Lewati baris yang benar-benar kosong
+                if not any(str(cell).strip() for cell in row):
+                    continue
+                
+                # Jika baris lebih pendek dari header, tambahkan None (sel kosong)
+                if len(row) < num_expected_cols:
+                    row.extend([None] * (num_expected_cols - len(row)))
+                
+                # Jika baris lebih panjang dari header, potong agar pas
+                normalized_data.append(row[:num_expected_cols])
+            
+            if not normalized_data:
+                logging.warning(f"Tidak ada data valid ditemukan di bawah header sheet '{target_sheet}'.")
+                return pd.DataFrame()
+
+            # 5. Buat DataFrame
+            df = pd.DataFrame(normalized_data, columns=unique_header)
+            
+            logging.info(f"[SUCCESS] Berhasil memuat {len(df)} baris dari {target_sheet} (Kolom: {num_expected_cols}).")
+            return df
+            
+        except Exception as e:
+            logging.error(f"[ERROR] fetch_data failed: {str(e)}")
+            # Berikan error yang lebih informatif untuk debugging
+            raise RuntimeError(f"Gagal memproses sheet '{target_sheet}': {str(e)}")
+
+    def _find_header_row(self, values: List[List[str]]) -> Tuple[List[str], int]:
+        """Mencari baris header berdasarkan kolom kunci (NO ASSET & KONDISI)."""
         key_header_columns = {self.COL_NO_ASET, self.COL_KONDISI}
         for i, row in enumerate(values):
             row_content = {str(cell).strip().upper() for cell in row if str(cell).strip()}
@@ -123,10 +150,13 @@ class GoogleSheetsAssetDataSource(IAssetDataSource):
         return [], -1
 
     def _make_unique_columns(self, columns: List[str]) -> List[str]:
-        """Memastikan setiap nama kolom unik untuk menghindari error di Pandas."""
+        """Mencegah duplikasi nama kolom agar tidak error di Pandas."""
         seen = {}
         new_columns = []
         for col in columns:
+            if not col: # Jika nama kolom kosong, beri nama default
+                col = "UNTITLED_COLUMN"
+                
             original_col = col
             count = seen.get(original_col, 0)
             if count > 0:

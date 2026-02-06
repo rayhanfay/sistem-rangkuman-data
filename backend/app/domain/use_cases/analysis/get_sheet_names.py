@@ -1,17 +1,20 @@
-from typing import List
+import os
+from typing import List, Optional
 from app.domain.repositories.asset_data_source import IAssetDataSource
 
 class GetSheetNamesUseCase:
-    """Use case untuk mendapatkan semua nama sheet dari sumber data."""
+    """Use case untuk mendapatkan daftar nama sheet dari sumber tertentu."""
     def __init__(self, asset_data_source: IAssetDataSource):
         self.asset_data_source = asset_data_source
 
-    def execute(self) -> List[str]:
+    def execute(self, source: str = 'master') -> List[str]:
         """
-        Memanggil repository untuk mengambil daftar nama sheet.
+        Menjalankan logika pengambilan nama sheet.
+        source: 'master' atau 'siklus'
         """
-        try:
-            return self.asset_data_source.get_sheet_names()
-        except Exception as e:
-            print(f"ERROR saat mengambil nama sheet: {e}")
-            raise RuntimeError(f"Gagal mengambil daftar sheet dari sumber data: {e}")
+        if source == 'siklus':
+            target_id = os.getenv("GOOGLE_SHEET_ID_SIKLUS")
+        else:
+            target_id = os.getenv("GOOGLE_SHEET_ID_MASTER")
+
+        return self.asset_data_source.get_sheet_names(spreadsheet_id=target_id)

@@ -18,8 +18,10 @@ const Home = () => {
     const [error, setError] = useState('');
     const [selectedArea, setSelectedArea] = useState('Semua Area');
     const [availableAreas, setAvailableAreas] = useState(['Semua Area']);
-    const [sheetName, setSheetName] = useState('');
-    const [availableSheets, setAvailableSheets] = useState([]);
+    
+    const [sheetName, setSheetName] = useState('master|MASTER-SHEET');
+    
+    const [availableSheets, setAvailableSheets] = useState({ master: [], siklus: [] });
     
     const { showToast } = useToast();
     const { service: mcpService, status: mcpStatus } = useMcp();
@@ -34,12 +36,27 @@ const Home = () => {
         if (isInitialLoad.current || isRefresh) setLoading(true); else setIsFiltering(true);
 
         try {
-            const [sheetsResult, dashboardResult] = await Promise.all([
-                mcpService.call('tools/call', { name: 'get_sheet_names', arguments: {} }),
-                mcpService.call('tools/call', { name: 'get_dashboard_data', arguments: { area: selectedArea } })
+            const [masterSheetsResult, siklusSheetsResult, dashboardResult] = await Promise.all([
+                mcpService.call('tools/call', { 
+                    name: 'get_sheet_names', 
+                    arguments: { source: 'master' } 
+                }),
+                mcpService.call('tools/call', { 
+                    name: 'get_sheet_names', 
+                    arguments: { source: 'siklus' } 
+                }),
+                mcpService.call('tools/call', { 
+                    name: 'get_dashboard_data', 
+                    arguments: { area: selectedArea } 
+                })
             ]);
             
-            setAvailableSheets(sheetsResult.content);
+            // Simpan ke state object
+            setAvailableSheets({
+                master: masterSheetsResult.content || [],
+                siklus: siklusSheetsResult.content || []
+            });
+
             const dashboardData = dashboardResult.content;
             
             if (!dashboardData.data_available) {
@@ -50,10 +67,8 @@ const Home = () => {
                 setAvailableAreas(['Semua Area', ...dashboardData.available_areas.filter(a => a !== 'Semua Area')]);
             }
 
-            if (isRefresh) {
-                // showToast('Data berhasil diperbarui!', 'success');
-            }
         } catch (err) {
+            console.error("Fetch Error:", err);
             setData(null);
             setError(err.message);
             showToast(err.message, 'error');
@@ -75,11 +90,10 @@ const Home = () => {
         if (mcpStatus === 'connected') {
             fetchData(false);
         }
-    }, [selectedArea, mcpStatus]);
+    }, [selectedArea, mcpStatus, fetchData]);
 
     useEffect(() => {
         if (analysisCompletedTimestamp) {
-            console.log("Analysis completed signal received in Home.jsx, refreshing...");
             refreshData();
             resetAnalysisCompletedTimestamp();
         }
@@ -95,7 +109,14 @@ const Home = () => {
         return <LoadingOverlay />;
     }
 
-    const filters = { selectedArea, setSelectedArea, availableAreas, sheetName, setSheetName, availableSheets };
+    const filters = { 
+        selectedArea, 
+        setSelectedArea, 
+        availableAreas, 
+        sheetName, 
+        setSheetName, 
+        availableSheets 
+    };
 
     return (
         <div className="space-y-6">
@@ -123,6 +144,9 @@ const Home = () => {
                     <AlertCircle className="h-16 w-16 text-brand-red mx-auto mb-4" />
                     <h2 className="text-2xl font-bold text-gray-800 mb-2">Gagal Memuat Data Dashboard</h2>
                     <p className="text-gray-600">{error}</p>
+                    <Button onClick={refreshData} className="mt-4" variant="outline">
+                        Coba Muat Ulang
+                    </Button>
                 </Card>
             ) : (
                 <DashboardStats data={data} isFiltering={isFiltering} />

@@ -1,4 +1,5 @@
 import traceback
+import os
 from datetime import datetime
 import pytz
 from typing import Callable, Dict, List, Any
@@ -52,14 +53,24 @@ class TriggerAnalysisUseCase:
         
         total_rows = len(df)
         num_areas = df['AREA'].nunique() if 'AREA' in df.columns else 'N/A'
-        date_col = 'TANGGAL UPDATE'
         
-        if date_col in df.columns:
-            df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
-            min_date_val, max_date_val = df[date_col].min(), df[date_col].max()
-            min_date = min_date_val.strftime('%d %B %Y') if pd.notna(min_date_val) else 'N/A'
-            max_date = max_date_val.strftime('%d %B %Y') if pd.notna(max_date_val) else 'N/A'
-            date_range = f"{min_date} hingga {max_date}"
+        # --- PERBAIKAN LOGIKA DETEKSI TANGGAL ---
+        date_col = None
+        if 'TANGGAL INVENTORY' in df.columns:
+            date_col = 'TANGGAL INVENTORY'
+        elif 'TANGGAL UPDATE' in df.columns:
+            date_col = 'TANGGAL UPDATE'
+
+        if date_col:
+            temp_dates = pd.to_datetime(df[date_col], errors='coerce', dayfirst=True)
+            min_date_val, max_date_val = temp_dates.min(), temp_dates.max()
+            
+            if pd.notna(min_date_val) and pd.notna(max_date_val):
+                min_date = min_date_val.strftime('%d-%b-%Y')
+                max_date = max_date_val.strftime('%d-%b-%Y')
+                date_range = f"{min_date} hingga {max_date}"
+            else:
+                date_range = "Format tanggal tidak dikenali"
         else: 
             date_range = "Informasi tanggal tidak tersedia"
         
@@ -68,7 +79,7 @@ class TriggerAnalysisUseCase:
             f"\n- Sumber Data: Sheet '{sheet_name}'",
             f"- Jumlah Total Aset: {total_rows} unit",
             f"- Jumlah Area Unik: {num_areas}",
-            f"- Rentang Waktu Data (berdasarkan Tgl. Update): {date_range}"
+            f"- Rentang Waktu Data (berdasarkan {date_col if date_col else 'Tanggal'}): {date_range}"
         ]
         return "\n".join(overview_parts)
 
@@ -77,21 +88,25 @@ class TriggerAnalysisUseCase:
             return []
         
         df_copy = df.copy()
-        df_copy['NILAI ASET'] = pd.to_numeric(df_copy['NILAI ASET'].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce').fillna(0)
-        summary = []
         
+        df_copy['NILAI_NUMERIC'] = pd.to_numeric(
+            df_copy['NILAI ASET'].astype(str).str.replace(r'[^\d]', '', regex=True), 
+            errors='coerce'
+        ).fillna(0)
+        
+        summary = []
         for area, group in df_copy.groupby('AREA'):
             if group.empty or pd.isna(area): 
                 continue
             
-            total_value = group['NILAI ASET'].sum()
-            max_row = group.loc[group['NILAI ASET'].idxmax()]
-            asset_termahal = {"nama": max_row.get('NAMA ASET', 'N/A'), "nilai": max_row['NILAI ASET']}
+            total_value = group['NILAI_NUMERIC'].sum()
+            max_row = group.loc[group['NILAI_NUMERIC'].idxmax()]
+            asset_termahal = {"nama": max_row.get('NAMA ASET', 'N/A'), "nilai": max_row['NILAI_NUMERIC']}
             
-            non_zero_assets = group[group['NILAI ASET'] > 0]
+            non_zero_assets = group[group['NILAI_NUMERIC'] > 0]
             if not non_zero_assets.empty:
-                min_row = non_zero_assets.loc[non_zero_assets['NILAI ASET'].idxmin()]
-                asset_termurah = {"nama": min_row.get('NAMA ASET', 'N/A'), "nilai": min_row['NILAI ASET']}
+                min_row = non_zero_assets.loc[non_zero_assets['NILAI_NUMERIC'].idxmin()]
+                asset_termurah = {"nama": min_row.get('NAMA ASET', 'N/A'), "nilai": min_row['NILAI_NUMERIC']}
             else: 
                 asset_termurah = {"nama": "N/A", "nilai": 0}
             
@@ -161,25 +176,50 @@ class TriggerAnalysisUseCase:
             def send_progress(status: str, message: str):
                 progress_callback({"status": status, "message": message})
 
-            available_sheets = self.asset_data_source.get_sheet_names()
+            source = options.source if hasattr(options, 'source') and options.source else 'master'
+            
+            if source == 'siklus':
+                target_id = os.getenv("GOOGLE_SHEET_ID_SIKLUS")
+                source_label = "SIKLUS"
+                default_sheet_name = 'CYCLE-1-YEAR-2026'
+            else:
+                target_id = os.getenv("GOOGLE_SHEET_ID_MASTER")
+                source_label = "MASTER"
+                default_sheet_name = 'MASTER-SHEET'
+
+            if not target_id:
+                logging.error(f"[FATAL] Environment Variable untuk {source_label} tidak ditemukan!")
+                target_id = os.getenv("GOOGLE_SHEET_ID") # Fallback Terakhir
+
+            logging.info(f">>> STARTING ANALYSIS: Source={source_label} | Sheet={options.sheet_name} | ID={target_id}")
+
+            # Ambil daftar sheet yang tersedia di link yang dipilih
+            available_sheets = self.asset_data_source.get_sheet_names(spreadsheet_id=target_id)
             requested_sheet = options.sheet_name
             
             if requested_sheet and requested_sheet in available_sheets:
                 sheet_to_analyze = requested_sheet
             else:
-                sheet_to_analyze = 'MasterDataAsset'
+                sheet_to_analyze = default_sheet_name
                 if requested_sheet:
-                    logging.warning(f"Sheet '{requested_sheet}' tidak ditemukan, menggunakan default 'MasterDataAsset'.")
+                    logging.warning(f"Sheet '{requested_sheet}' tidak ditemukan di link {source_label}, menggunakan default '{default_sheet_name}'.")
 
-            send_progress("starting", f"Analisis untuk sheet '{sheet_to_analyze}' telah dimulai...")
+            send_progress("starting", f"Analisis untuk data {source_label} pada sheet '{sheet_to_analyze}' telah dimulai...")
             
-            df = self.asset_data_source.fetch_data(sheet_to_analyze)
+            # Fetch data dengan Spreadsheet ID yang dinamis
+            df = self.asset_data_source.fetch_data(sheet_to_analyze, spreadsheet_id=target_id)
+
             if df.empty:
-                raise ValueError(f"Tidak ada data di sheet '{sheet_to_analyze}'.")
+                raise ValueError(f"Tidak ada data di sheet '{sheet_to_analyze}' pada link {source_label}.")
 
             df.columns = [str(col).strip().upper() for col in df.columns]
+
+            for col in df.columns:
+                if 'NILAI ASET' in col:
+                    df.rename(columns={col: 'NILAI ASET'}, inplace=True)
+                    break
             
-            send_progress("progress", "Memproses data dan menjalankan analisis...")
+            send_progress("progress", f"Data {source_label} berhasil dimuat. Memproses kalkulasi...")
             
             report_parts = []
             
@@ -196,7 +236,7 @@ class TriggerAnalysisUseCase:
                 send_progress("progress", "Menghubungi AI untuk membuat Ringkasan Eksekutif...")
                 
                 print("\n" + "="*80)
-                print(">>> DASHBOARD ANALYSIS - LLM CALL #1: GENERATING SUMMARY")
+                print(f">>> DASHBOARD ANALYSIS ({source_label}) - LLM CALL #1: GENERATING SUMMARY")
                 print("="*80)
                 
                 # LLM Call #1: Generate Summary
@@ -253,19 +293,20 @@ class TriggerAnalysisUseCase:
             
             final_options = options.dict()
             final_options['sheet_name'] = sheet_to_analyze
+            final_options['source'] = source
 
             analysis_result = {
                 "data_available": True, 
                 "dataframe": df, 
                 "summary_text": final_html,
-                "chart_data": self.chart_service.create_chart_data(df),
+                "chart_data": self.chart_service.create_chart_data(df), # ChartService akan melihat kolom 'NILAI ASET' yang bersih
                 "cycle_assets_table": cycle_assets_table,
                 "options": final_options,
                 "analysis_time": datetime.now(self.wib_timezone),
             }
             
             self.preview_state_service.set(analysis_result)
-            send_progress("completed", "Analisis berhasil diselesaikan.")
+            send_progress("completed", f"Analisis berhasil diselesaikan menggunakan sumber {source_label} ({sheet_to_analyze}).")
             return
 
         except Exception as e:

@@ -55,7 +55,7 @@ FORMAT JSON OUTPUT:
 {{
   "factual_accuracy": {{
     "is_correct": <true atau false, berdasarkan keberadaan entitas>,
-    "notes": ["Catat di sini jika ada detail yang berbeda, contoh: 'Nilai Aset ROUTER CORE berbeda antara rangkuman dan sumber data.' Kosongkan jika semua detail cocok."]
+    "notes": ["Catat di sini jika ada detail yang berbeda, contoh: 'NILAI ASET ROUTER CORE berbeda antara rangkuman dan sumber data.' Kosongkan jika semua detail cocok."]
   }},
   "completeness_score": <integer 1-5>,
   "relevance_score": <integer 1-5>,
@@ -160,6 +160,8 @@ class DocumentAnalyzer:
     ) -> str:
         """
         Meminta LLM untuk memilih tool dengan rotasi otomatis.
+        Diperbarui untuk mendukung pendeteksian sumber data (Master/Siklus) 
+        dan pemblokiran tool trigger_analysis secara cerdas.
         """
         history_text = json.dumps(conversation_history, indent=2, ensure_ascii=False)
         tools_as_text = json.dumps(tools, indent=2)
@@ -167,7 +169,8 @@ class DocumentAnalyzer:
 
         template = """
         Anda adalah AI router cerdas untuk Sistem Manajemen Aset Pertamina Hulu Rokan (PHR).
-        
+        Tugas utama Anda adalah menganalisis permintaan pengguna dan memilih tindakan (tool) yang paling tepat.
+
         PENGETAHUAN DOMAIN KHUSUS (Domain Knowledge Mapping):
         
         1. MAPPING LOKASI:
@@ -196,6 +199,11 @@ class DocumentAnalyzer:
         5. ASET LAMA/TUA:
            - Jika user menyebut "Aset tua" atau "Aset lama", gunakan filter tahun pembelian sebelum 2015 (jika kolom tersedia).
 
+        6. ATURAN SUMBER DATA (SOURCE SELECTION):
+           - Secara DEFAULT, gunakan source: "master".
+           - Jika user menyebut "Siklus", "Cycle", atau merujuk pada tahun/periode spesifik (misal: "data 2022", "cycle 1 2026"), Anda WAJIB mengatur argumen `source: "siklus"`.
+           - Jika user menyebut nama sheet secara spesifik yang mengandung kata 'CYCLE', masukkan ke argumen `sheet_name` dan pastikan `source: "siklus"`.
+
         RIWAYAT PERCAKAPAN:
         {history}
 
@@ -212,51 +220,39 @@ class DocumentAnalyzer:
         1.  Analisis **PERTANYAAN PENGGUNA** dan gunakan **RIWAYAT** untuk konteks.
         2.  **TERAPKAN PENGETAHUAN DOMAIN**: 
             - Jika pertanyaan menyebut "Dumai", jangan cari literal "Dumai" di database, tetapi peta ke "COASTAL" atau "BENGKALIS".
-            - Jika pertanyaan hanya menyebut "Rusak", WAJIB minta klarifikasi atau sertakan KEDUA jenis rusak ("Rusak Berat, Rusak Ringan") dalam argumen.
+            - Jika pertanyaan hanya menyebut "Rusak", sertakan KEDUA jenis rusak ("Rusak Berat, Rusak Ringan") dalam argumen jika melakukan filter.
         3.  **PRIORITAS PERTAMA:** Periksa apakah pertanyaan merujuk pada salah satu **RESOURCE** yang tersedia (misalnya dengan menyebutkan nama sheet seperti 'q2y2025' atau 'laporan sebelumnya').
         4.  PILIH TOOL:
-            - Jika pertanyaan merujuk pada sebuah RESOURCE, **WAJIB** gunakan tool `query_resource`. Temukan `resource_name` yang paling cocok dari daftar.
-            - Jika pertanyaan bersifat umum dan tidak merujuk pada resource, gunakan tool `query_assets`.
-            - Jika pertanyaan tentang "rusak" saja tanpa spesifikasi, sertakan argumen kondisi: "Rusak Berat, Rusak Ringan".
+            - Jika pertanyaan merujuk pada sebuah RESOURCE, **WAJIB** gunakan tool `query_resource`. Temukan `resource_name` yang paling cocok dari daftar. Anda bisa memfilter resource tersebut menggunakan `no_asset`, `nama_aset`, `area`, atau `kondisi`.
+            - Jika pertanyaan bersifat umum (data live) dan tidak merujuk pada file resource lama, gunakan tool `query_assets`.
         5.  Anda HARUS merespons HANYA dengan format JSON yang valid.
 
-        ATURAN PRIORITAS TOOL:
-        1. JANGAN PERNAH gunakan 'trigger_analysis' untuk menjawab pertanyaan spesifik atau meminta insight di dalam chat. 
-        2. 'trigger_analysis' HANYA digunakan jika user secara eksplisit meminta "Jalankan analisis ulang", "Refresh dashboard", atau "Analisis sheet baru".
+        ATURAN PRIORITAS TOOL & KEAMANAN:
+        1. **DILARANG KERAS** menggunakan 'trigger_analysis' untuk menjawab pertanyaan spesifik atau meminta insight di dalam chat. 
+        2. 'trigger_analysis' HANYA digunakan jika user secara eksplisit meminta "Jalankan analisis ulang dashboard secara keseluruhan". Jika user hanya bertanya tentang data, gunakan `query_assets`.
         3. Untuk pertanyaan tentang "insight", "kesimpulan", "distribusi", atau "ringkasan data", GUNAKAN tool 'query_assets' dengan task 'get_distribution_analysis' atau 'get_top_values'.
-        4. Jika user bertanya "Apa kesimpulan data ini?", gunakan 'query_assets' untuk mengambil statistik umum (seperti distribusi kondisi aset), lalu simpulkan sendiri hasilnya.
+        4. Jika user bertanya "Apa kesimpulan data ini?", gunakan 'query_assets' untuk mengambil statistik umum, lalu simpulkan sendiri hasilnya.
 
-        CONTOH:
-        - Tanya: "Berikan 3 insight utama."
-        - Router: {{ "tool_name": "query_assets", "arguments": {{ "task": "get_distribution_analysis", "group_by_field": "KONDISI" }} }}
-        
         LOGIKA AGREGASI LANJUTAN:
         1. Jika user bertanya "Apa [X] paling banyak di setiap [Y]?" (Contoh: Apa nama aset terbanyak di setiap area?):
             - Gunakan tool: 'query_assets'
             - Task: 'get_top_per_group'
             - group_by_field: '[Y]' (misal: AREA)
             - count_field: '[X]' (misal: NAMA ASET)
-        2. JANGAN gunakan 'filter' biasa untuk pertanyaan ini karena hasilnya akan terlalu banyak dan tidak memberikan kesimpulan.
 
         CONTOH ALUR BERPIKIR:
 
-        Contoh 1 - Mapping Lokasi:
+        Contoh 1 - Mapping Lokasi & Sumber Master:
         -   Pertanyaan: "Aset apa saja yang ada di Dumai?"
-        -   Analisis: User menyebut "Dumai". Dari PENGETAHUAN DOMAIN, "Dumai" adalah bagian dari area "COASTAL" atau "BENGKALIS". Database tidak memiliki "Dumai" literal.
-        -   Pilihan Tool: 'query_assets'
-        -   JSON Respons: {{"tool_name": "query_assets", "arguments": {{"area": "COASTAL", "limit": 20}}}}
+        -   JSON Respons: {{"tool_name": "query_assets", "arguments": {{"area": "COASTAL", "source": "master", "limit": 20}}}}
 
-        Contoh 2 - Klarifikasi Kondisi Rusak:
-        -   Pertanyaan: "Berapa jumlah aset rusak di Duri?"
-        -   Analisis: User menyebut "rusak" tanpa spesifikasi. Harus mencakup "Rusak Berat" dan "Rusak Ringan". Area "Duri" sudah jelas.
-        -   Pilihan Tool: 'query_assets'
-        -   JSON Respons: {{"tool_name": "query_assets", "arguments": {{"area": "DURI", "kondisi": "Rusak Berat, Rusak Ringan", "task": "filter"}}}}
+        Contoh 2 - Pendeteksian Sumber Siklus:
+        -   Pertanyaan: "Berapa aset rusak di Siklus 1 tahun 2022?"
+        -   JSON Respons: {{"tool_name": "query_assets", "arguments": {{"source": "siklus", "sheet_name": "CYCLE-1-YEAR-2022", "kondisi": "Rusak Berat, Rusak Ringan", "task": "count"}}}}
 
-        Contoh 3 - Resource Spesifik:
-        -   Pertanyaan: "dari laporan q2y2025, aset mana saja yang rusak?"
-        -   Analisis: Pengguna menyebut 'q2y2025'. Di daftar RESOURCE, ada file "data_q2y2025_...json". Ini cocok.
-        -   Pilihan Tool: 'query_resource'
-        -   JSON Respons: {{"tool_name": "query_resource", "arguments": {{"resource_name": "data_q2y2025_20250816_133418.json", "kondisi": "Rusak Berat, Rusak Ringan"}}}}
+        Contoh 3 - Query Resource (File Lama):
+        -   Pertanyaan: "di laporan MASTER-SHEET bulan lalu, apakah ada aset PC di area DURI?"
+        -   JSON Respons: {{"tool_name": "query_resource", "arguments": {{"resource_name": "data_MASTER-SHEET_20260101_080000.json", "nama_aset": "PC", "area": "DURI"}}}}
 
         JSON Respons Anda:
         """
@@ -264,6 +260,7 @@ class DocumentAnalyzer:
         prompt = ChatPromptTemplate.from_template(template)
         chain = prompt | self.model | StrOutputParser()
 
+        # Eksekusi LLM call dengan sistem rotasi key
         llm_response = await self._execute_with_rotation_async(chain, {
             "history": history_text,
             "tools_text": tools_as_text,
@@ -271,6 +268,7 @@ class DocumentAnalyzer:
             "user_prompt": user_prompt
         })
 
+        # Pembersihan tag markdown jika LLM menyertakannya
         cleaned_response = llm_response.strip().replace("```json", "").replace("```", "").strip()
         return cleaned_response
 
