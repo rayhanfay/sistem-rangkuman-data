@@ -337,32 +337,43 @@ class McpServer:
         }
 
     async def _handle_tools_list(self, params: dict, db_session, websocket: WebSocket) -> dict:
+        """
+        Mengembalikan daftar tool yang tersedia untuk LLM beserta deskripsinya.
+        Deskripsi di sini telah dioptimalkan agar AI memilih tool dengan akurasi 100%
+        dan menghindari kesalahan penghitungan manual.
+        """
         tool_schemas = self._get_tool_schemas()
+        
+        # Deskripsi yang diperkuat untuk akurasi data dan pemilihan sumber
         descriptions = {
             "trigger_analysis": "HANYA digunakan untuk merefresh atau membuat ulang Dashboard Analisis utama secara keseluruhan. MENDUKUNG pemilihan sumber 'master' atau 'siklus'. Tool ini tidak memberikan teks jawaban langsung ke chat.",
-            "query_assets": "Mencari, memfilter, atau membuat breakdown statistik dari data aset utama. PENTING: Untuk area Dumai gunakan 'COASTAL', untuk kondisi rusak gunakan 'Rusak Berat, Rusak Ringan'.",
-            "query_resource": "Mencari data spesifik dari hasil analisis (file JSON) yang sudah disimpan sebelumnya.",
-            "save_analysis": "Menyimpan hasil analisis terbaru ke dalam database riwayat.",
-            "get_dashboard_data": "Mengambil data ringkasan cepat untuk tampilan dashboard.",
-            "get_sheet_names": "Mendapatkan daftar nama sheet yang tersedia di Google Sheets (Master/Siklus).",
-            "get_master_data": "Mengambil seluruh data mentah dari sheet tertentu pada sumber Master atau Siklus.",
+            "query_assets": "Tool UTAMA untuk mencari, memfilter, menghitung jumlah (count), menghitung total nilai uang (sum_value), atau membuat statistik. PENTING: Gunakan ini untuk pertanyaan 'Berapa jumlah' agar hasil akurat 100%. Untuk Dumai gunakan area 'COASTAL', untuk rusak gunakan 'Rusak Berat, Rusak Ringan'.",
+            "query_resource": "Mencari data spesifik (filter by no_asset, nama_aset, area, atau kondisi) dari file hasil analisis (resource JSON) yang sudah disimpan sebelumnya.",
+            "save_analysis": "Menyimpan hasil analisis terbaru yang ada di pratinjau ke dalam database riwayat.",
+            "get_dashboard_data": "Mengambil data ringkasan cepat (summary) untuk tampilan dashboard.",
+            "get_sheet_names": "Mendapatkan daftar nama sheet yang tersedia di Google Sheets baik dari link Master maupun Siklus.",
+            "get_master_data": "HANYA digunakan untuk melihat baris data mentah secara keseluruhan. JANGAN PERNAH gunakan ini untuk menghitung jumlah atau total aset karena akan menyebabkan kesalahan pembacaan (hallucination).",
             "get_all_users": "Mengambil daftar seluruh pengguna sistem (hanya untuk Admin).",
             "create_user": "Membuat akun pengguna baru di sistem dan Firebase (Hanya untuk Admin).",
             "delete_user": "Menghapus akun pengguna dari database sistem dan Firebase berdasarkan ID (Hanya untuk Admin).",
             "update_user_email": "Mengubah alamat email pengguna yang sudah ada (Hanya untuk Admin).",
             "update_user_role": "Mengubah peran/akses pengguna, misalnya dari 'user' menjadi 'admin' (Hanya untuk Admin).",
-            "get_history": "Mendapatkan riwayat analisis yang pernah dilakukan.",
-            "delete_history": "Menghapus riwayat analisis berdasarkan timestamp.",
+            "get_history": "Mendapatkan riwayat analisis yang pernah dilakukan sebelumnya.",
+            "delete_history": "Menghapus riwayat analisis berdasarkan timestamp tertentu.",
             "get_stats_data": "Mengambil data statistik detail untuk halaman Statistik, dengan opsi filter area dan timestamp."
         }
         
-        tools = [
-            {
-                "name": name, 
-                "description": descriptions.get(name, ""), 
-                "inputSchema": {"type": "object", **schema}
-            } for name, schema in tool_schemas.items()
-        ]
+        tools = []
+        for name, schema in tool_schemas.items():
+            tools.append({
+                "name": name,
+                "description": descriptions.get(name, "Tool untuk membantu manajemen aset."),
+                "inputSchema": {
+                    "type": "object",
+                    **schema
+                }
+            })
+            
         return {"tools": tools}
 
     async def _handle_tools_call(self, params: dict, db_session, websocket: WebSocket) -> Optional[dict]:

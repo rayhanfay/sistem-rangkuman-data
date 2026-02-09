@@ -241,24 +241,38 @@ class QueryAssetsUseCase:
         if calculation:
             applied_filters = []
             if area: applied_filters.append(f"Area: {area}")
-            if kode_lokasi_sap: applied_filters.append(f"Lokasi: {kode_lokasi_sap}")
+            if kode_lokasi_sap: applied_filters.append(f"Lokasi SAP: {kode_lokasi_sap}")
             if kondisi: applied_filters.append(f"Kondisi: {kondisi}")
+            if manufaktur: applied_filters.append(f"Manufaktur: {manufaktur}")
+            if sheet_name: applied_filters.append(f"Sheet: {sheet_name}")
             
-            context_label = " | ".join(applied_filters)
+            # Jika tidak ada filter, beri label "Seluruh Data"
+            context_label = " | ".join(applied_filters) if applied_filters else "Seluruh Data Aset"
 
+            # A. Logika Hitung Jumlah Unit (COUNT)
             if calculation == 'count': 
+                total_count = int(len(df)) # Pastikan integer murni untuk JSON
                 return {
                     "calculation_result": {
+                        "metrik": "Jumlah Total Aset",
                         "label": context_label,
-                        "count": len(df),
-                        "details": "Data dihitung berdasarkan filter yang diminta."
+                        "count": total_count,
+                        "source": source.upper(),
+                        "details": f"Ditemukan sebanyak {total_count} unit aset berdasarkan filter yang diminta."
                     }
                 }
+
+            # B. Logika Hitung Total Nilai Uang (SUM)
             if calculation == 'sum_value' and '_NILAI_NUMERIC' in df.columns:
+                total_sum = float(df['_NILAI_NUMERIC'].sum()) # Pastikan float murni
                 return {
                     "calculation_result": {
+                        "metrik": "TOTAL NILAI ASET (RUPIAH)",
                         "label": context_label,
-                        "total_value": f"Rp {df['_NILAI_NUMERIC'].sum():,.0f}"
+                        "total_value": f"Rp {total_sum:,.0f}",
+                        "raw_value": total_sum,
+                        "source": source.upper(),
+                        "details": f"Total nilai uang dari aset tersebut adalah Rp {total_sum:,.0f}"
                     }
                 }
 

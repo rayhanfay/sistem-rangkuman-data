@@ -160,8 +160,8 @@ class DocumentAnalyzer:
     ) -> str:
         """
         Meminta LLM untuk memilih tool dengan rotasi otomatis.
-        Diperbarui untuk mendukung pendeteksian sumber data (Master/Siklus) 
-        dan pemblokiran tool trigger_analysis secara cerdas.
+        Diperbarui untuk mendukung pendeteksian sumber data (Master/Siklus), 
+        pemblokiran tool trigger_analysis, dan pemaksaan akurasi hitungan data.
         """
         history_text = json.dumps(conversation_history, indent=2, ensure_ascii=False)
         tools_as_text = json.dumps(tools, indent=2)
@@ -169,7 +169,12 @@ class DocumentAnalyzer:
 
         template = """
         Anda adalah AI router cerdas untuk Sistem Manajemen Aset Pertamina Hulu Rokan (PHR).
-        Tugas utama Anda adalah menganalisis permintaan pengguna dan memilih tindakan (tool) yang paling tepat.
+        Tugas utama Anda adalah menganalisis permintaan pengguna dan memilih tindakan (tool) yang paling tepat dengan tingkat akurasi data 100%.
+
+        ATURAN AKURASI DATA (ANTI-HALLUCINATION):
+        1. **DILARANG KERAS** menggunakan tool `get_master_data` untuk menghitung jumlah aset, total unit, atau statistik.
+        2. Jika user bertanya "Berapa jumlah...", "Berapa total...", "Berapa aset...", Anda **WAJIB** menggunakan tool `query_assets` dengan argumen `{{"calculation": "count", "task": "filter"}}`.
+        3. Menghitung baris secara manual dari `get_master_data` akan menyebabkan kesalahan data. Serahkan tugas berhitung kepada tool `query_assets`.
 
         PENGETAHUAN DOMAIN KHUSUS (Domain Knowledge Mapping):
         
@@ -242,15 +247,20 @@ class DocumentAnalyzer:
 
         CONTOH ALUR BERPIKIR:
 
-        Contoh 1 - Mapping Lokasi & Sumber Master:
+        Contoh 1 - Pertanyaan Jumlah (Akurasi Tinggi):
+        -   Pertanyaan: "Berapa total aset di master sheet?"
+        -   Analisis: User bertanya jumlah. DILARANG pakai get_master_data. Pakai query_assets dengan calculation count.
+        -   JSON Respons: {{"tool_name": "query_assets", "arguments": {{"source": "master", "calculation": "count", "task": "filter"}}}}
+
+        Contoh 2 - Mapping Lokasi & Sumber Master:
         -   Pertanyaan: "Aset apa saja yang ada di Dumai?"
         -   JSON Respons: {{"tool_name": "query_assets", "arguments": {{"area": "COASTAL", "source": "master", "limit": 20}}}}
 
-        Contoh 2 - Pendeteksian Sumber Siklus:
+        Contoh 3 - Pendeteksian Sumber Siklus:
         -   Pertanyaan: "Berapa aset rusak di Siklus 1 tahun 2022?"
-        -   JSON Respons: {{"tool_name": "query_assets", "arguments": {{"source": "siklus", "sheet_name": "CYCLE-1-YEAR-2022", "kondisi": "Rusak Berat, Rusak Ringan", "task": "count"}}}}
+        -   JSON Respons: {{"tool_name": "query_assets", "arguments": {{"source": "siklus", "sheet_name": "CYCLE-1-YEAR-2022", "kondisi": "Rusak Berat, Rusak Ringan", "calculation": "count", "task": "filter"}}}}
 
-        Contoh 3 - Query Resource (File Lama):
+        Contoh 4 - Query Resource (File Lama):
         -   Pertanyaan: "di laporan MASTER-SHEET bulan lalu, apakah ada aset PC di area DURI?"
         -   JSON Respons: {{"tool_name": "query_resource", "arguments": {{"resource_name": "data_MASTER-SHEET_20260101_080000.json", "nama_aset": "PC", "area": "DURI"}}}}
 
