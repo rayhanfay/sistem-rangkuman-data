@@ -49,11 +49,15 @@ import {
     AccumulationLegend
 } from '@syncfusion/ej2-react-charts';
 
-// Import Utilities (Mencegah Duplikasi & ReDoS)
-import { parseAndFormatDate, sortAssetData, formatIDRCurrency } from '../utils/assetUtils';
+// Import Utilities & Custom Hook (Solusi Duplicated Code & ReDoS)
+import { parseAndFormatDate, formatIDRCurrency } from '../utils/assetUtils';
+import { useAssetDataProcessor } from '../hooks/useAssetDataProcessor';
 
 const chartPalettes = ['#003A70', '#00A859', '#E82A2A', '#F7941E', '#5A6474', '#00B4F1'];
 
+/**
+ * Komponen pembungkus untuk setiap grafik agar tampilan seragam
+ */
 const ChartCard = ({ title, icon: Icon, children }) => (
     <Card shadow="subtle">
         <Card.Header className="p-4 border-b flex items-center">
@@ -67,18 +71,14 @@ const ChartCard = ({ title, icon: Icon, children }) => (
 );
 
 const Stats = () => {
+    // --- State Management ---
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [isDownloadOpen, setIsDownloadOpen] = useState(false);
-    const [selectedArea, setSelectedArea] = useState('Semua Area');
-    const [availableAreas, setAvailableAreas] = useState(['Semua Area']);
-    const [currentPage, setCurrentPage] = useState(1);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [sortConfig, setSortConfig] = useState({ key: null, direction: 'none' });
-    const [kondisiFilter, setKondisiFilter] = useState('Semua');
     const [isSummaryVisible, setIsSummaryVisible] = useState(false);
+    const [availableAreas, setAvailableAreas] = useState(['Semua Area']);
     
     const rowsPerPage = 50;
     const location = useLocation();
@@ -87,8 +87,26 @@ const Stats = () => {
     const { service: mcpService, status: mcpStatus } = useMcp();
     const { user } = useAuth();
 
+    // --- Integrasi Custom Hook untuk Pengolahan Data Tabel ---
+    const { 
+        searchTerm, 
+        setSearchTerm, 
+        filterArea, 
+        setFilterArea, 
+        filterKondisi, // Ini variabel yang benar (sebelumnya error karena kondisiFilter)
+        setFilterKondisi, 
+        sortConfig, 
+        setSortConfig, 
+        currentPage, 
+        setCurrentPage, 
+        processedData 
+    } = useAssetDataProcessor(data?.table_data, 'Semua Area');
+
     const getTimestampFromURL = () => new URLSearchParams(location.search).get('timestamp');
 
+    /**
+     * Fungsi untuk mengambil data statistik dari backend/link MCP
+     */
     const fetchStatsData = useCallback(async (timestamp, area) => {
         if (mcpStatus !== 'connected') return;
 
@@ -104,6 +122,7 @@ const Stats = () => {
             if (!statsData?.data_available) {
                 throw new Error(statsData?.error_message || "Data tidak ditemukan.");
             }
+            
             setData(statsData);
             if (statsData.available_areas) {
                 setAvailableAreas(statsData.available_areas);
@@ -116,13 +135,17 @@ const Stats = () => {
         } finally {
             setLoading(false);
         }
-    }, [mcpService, mcpStatus, showToast]);
+    }, [mcpService, mcpStatus, showToast, setCurrentPage]);
 
+    // Fetch data ketika link atau filter area utama berubah
     useEffect(() => {
         const timestamp = getTimestampFromURL();
-        fetchStatsData(timestamp, selectedArea);
-    }, [selectedArea, location.search, fetchStatsData]);
+        fetchStatsData(timestamp, filterArea);
+    }, [filterArea, location.search, fetchStatsData]);
 
+    /**
+     * Menyimpan hasil analisis dashboard ke dalam riwayat database
+     */
     const handleSaveAnalysis = async () => {
         if (mcpStatus !== 'connected' || !user) {
             showToast('Koneksi atau sesi pengguna tidak valid.', 'warning');
@@ -145,6 +168,9 @@ const Stats = () => {
         }
     };
     
+    /**
+     * Menangani fungsi unduh data CSV/XLSX
+     */
     const handleDownload = (format) => {
         if (!data?.data_available) {
             showToast("Tidak ada data untuk diunduh.", 'warning');
@@ -154,7 +180,7 @@ const Stats = () => {
             file_format: format,
             source: data.is_temporary ? 'temporary' : 'history',
             timestamp: data.is_temporary ? null : data.timestamp,
-            area: selectedArea,
+            area: filterArea,
             sheet_name: null,
         };
         apiService.downloadAnalyzedData(params)
@@ -162,35 +188,16 @@ const Stats = () => {
         setIsDownloadOpen(false);
     };
 
+    // Opsi dropdown kondisi yang dihitung secara dinamis dari data yang masuk
     const kondisiOptions = useMemo(() => {
         if (!data?.table_data) return ['Semua'];
         const uniqueKondisi = new Set(data.table_data.map(item => item.KONDISI).filter(Boolean));
         return ['Semua', ...Array.from(uniqueKondisi).sort((a, b) => a.localeCompare(b))];
     }, [data]);
 
-    /**
-     * Memproses data tabel menggunakan filter lokal dan utility sortir universal
-     */
-    const processedData = useMemo(() => {
-        if (!data?.table_data) return [];
-        let filtered = [...data.table_data];
-
-        if (kondisiFilter !== 'Semua') {
-            filtered = filtered.filter(item => item.KONDISI === kondisiFilter);
-        }
-        if (searchTerm) {
-            const term = searchTerm.toLowerCase();
-            filtered = filtered.filter(item => 
-                Object.values(item).some(value => String(value || '').toLowerCase().includes(term))
-            );
-        }
-
-        // Panggil utility sortir (Mencegah Duplikasi & ReDoS)
-        return sortAssetData(filtered, sortConfig);
-    }, [data, searchTerm, kondisiFilter, sortConfig]);
-
-    const totalPages = Math.ceil(processedData.length / rowsPerPage);
+    // Data untuk tabel yang sedang ditampilkan
     const currentTableData = processedData.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
+    const totalPages = Math.ceil(processedData.length / rowsPerPage);
     const tableHeaders = data?.table_data?.[0] ? Object.keys(data.table_data[0]) : [];
     
     const handlePageChange = (pageNumber) => {
@@ -207,7 +214,7 @@ const Stats = () => {
         </div>
     );
 
-    // Menggunakan utility formatIDRCurrency (Mencegah ReDoS)
+    // --- Callback Render Grafik (Syncfusion) ---
     const onTooltipRender = (args) => {
         if (args.point && typeof args.point.y === 'number') {
             args.text = `<b>${args.point.x}</b><br/>Nilai: <b>Rp ${formatIDRCurrency(args.point.y)}</b>`;
@@ -230,7 +237,7 @@ const Stats = () => {
                     <h2 className="text-2xl font-bold text-gray-800 mb-2">Gagal Memuat Data</h2>
                     <p className="text-gray-600 mb-6">{error}</p>
                     <div className="flex justify-center space-x-4">
-                        <Button onClick={() => fetchStatsData(getTimestampFromURL(), selectedArea)}>
+                        <Button onClick={() => fetchStatsData(getTimestampFromURL(), filterArea)}>
                             <RefreshCw className="mr-2" size={16} /> Coba Lagi
                         </Button>
                         <Button variant="outline" onClick={() => navigate('/history')}>
@@ -244,7 +251,7 @@ const Stats = () => {
 
     return (
         <div className="space-y-6">
-            {/* Page Header */}
+            {/* Header Dashboard */}
             <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-4">
                 <div>
                     <h1 className="text-2xl md:text-3xl font-bold text-gray-800">Detail Statistik Analisis</h1>
@@ -260,8 +267,8 @@ const Stats = () => {
                         </label>
                         <select 
                             id="area-filter-stats" 
-                            value={selectedArea} 
-                            onChange={(e) => setSelectedArea(e.target.value)} 
+                            value={filterArea} 
+                            onChange={(e) => { setFilterArea(e.target.value); setCurrentPage(1); }} 
                             className="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-brand-blue focus:border-brand-blue block w-full p-2" 
                             disabled={loading}
                         >
@@ -287,7 +294,7 @@ const Stats = () => {
                 </div>
             </div>
             
-            {/* Chart Grid */}
+            {/* Grid Visualisasi Grafik */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <ChartCard title="Distribusi Kondisi Aset" icon={PieChart}>
                     {data?.chart_data?.kondisi?.length > 0 ? (
@@ -331,7 +338,7 @@ const Stats = () => {
                 </ChartCard>
             </div>
             
-            {/* Executive AI Summary Section */}
+            {/* Rangkuman AI Terintegrasi */}
             <Card shadow="subtle">
                 <Card.Header 
                     className="p-4 border-b flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors" 
@@ -349,28 +356,28 @@ const Stats = () => {
                 {isSummaryVisible && (
                      <Card.Content className="p-6">
                          <div
-                             className="prose max-w-none prose-li:my-2 prose-strong:text-text-primary prose-strong:font-semibold whitespace-pre-line"
+                             className="prose max-w-none prose-li:my-2 prose-strong:text-text-primary prose-strong:font-semibold whitespace-pre-line text-gray-700"
                              dangerouslySetInnerHTML={{ __html: data?.summary_text || '<p class="text-gray-500">Tidak ada rangkuman yang dihasilkan untuk analisis ini.</p>' }}
                          />
                      </Card.Content>
                 )}
             </Card>
 
-            {/* Raw Data Table Section */}
+            {/* Tabel Detail Data */}
             <Card shadow="subtle">
                 <Card.Header className="p-4 border-b flex items-center">
                     <BarChart2 className="h-5 w-5 text-brand-green mr-3" />
-                    <Card.Title>Data Tabel Mentah</Card.Title>
+                    <Card.Title>Rincian Data Aset Terpilih</Card.Title>
                 </Card.Header>
                 <Card.Content className="p-4">
                     <div className="flex flex-col md:flex-row gap-4 mb-4 p-4 bg-gray-50 rounded-lg border">
                         <div className="flex-grow">
                             <label htmlFor="search-table-stats" className="text-sm font-medium text-gray-700">Cari Data</label>
-                            <Input id="search-table-stats" type="text" placeholder="Ketik untuk mencari di semua kolom..." value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} className="mt-1" />
+                            <Input id="search-table-stats" type="text" placeholder="Ketik untuk mencari..." value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} className="mt-1" />
                         </div>
                         <div className="w-full md:w-48">
                             <label htmlFor="kondisi-filter-stats" className="text-sm font-medium text-gray-700">Filter Kondisi</label>
-                            <select id="kondisi-filter-stats" value={kondisiFilter} onChange={(e) => { setKondisiFilter(e.target.value); setCurrentPage(1); }} className="mt-1 w-full p-2 border rounded-md bg-white border-gray-300 focus:ring-2 focus:ring-brand-blue">
+                            <select id="kondisi-filter-stats" value={filterKondisi} onChange={(e) => { setFilterKondisi(e.target.value); setCurrentPage(1); }} className="mt-1 w-full p-2 border rounded-md bg-white border-gray-300 focus:ring-2 focus:ring-brand-blue">
                                 {kondisiOptions.map(opsi => <option key={opsi} value={opsi}>{opsi}</option>)}
                             </select>
                         </div>
@@ -381,7 +388,6 @@ const Stats = () => {
                                 className="mt-1 w-full p-2 border rounded-md bg-white border-gray-300 focus:ring-2 focus:ring-brand-blue"
                                 onChange={(e) => { 
                                     const [keyRaw, direction] = e.target.value.split('-');
-                                    // Reliability fix: Cari key asli di data (handle suffix Rp, dsb)
                                     const actualKey = tableHeaders.find(h => h.includes(keyRaw)) || keyRaw;
                                     setSortConfig({ key: actualKey, direction }); 
                                     setCurrentPage(1); 
@@ -409,10 +415,10 @@ const Stats = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                    {currentTableData.map((row, idx) => (
-                                        <tr key={row['NO ASSET'] || `row-${idx}`} className="hover:bg-gray-50 transition-colors">
+                                    {currentTableData.map((row, index) => (
+                                        <tr key={row['NO ASSET'] || `row-${index}`} className="hover:bg-gray-50 transition-colors">
                                             {tableHeaders.map(header => (
-                                                <td key={`${header}-${idx}`} className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                <td key={`${header}-${index}`} className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                                     {String(row[header] ?? '-')}
                                                 </td>
                                             ))}
@@ -428,12 +434,13 @@ const Stats = () => {
                         )}
                     </div>
                     
+                    {/* Navigasi Halaman */}
                     {totalPages > 1 && (
                         <div className="mt-4 flex flex-col sm:flex-row justify-between items-center gap-4">
                             <span className="text-sm text-gray-600">Menampilkan {currentTableData.length} dari {processedData.length} baris</span>
                             <div className="flex items-center space-x-2">
                                 <Button size="sm" variant="outline" onClick={() => handlePageChange(currentPage - 1)} disabled={currentPage === 1}>Sebelumnya</Button>
-                                <div className="px-4 py-1 text-sm font-medium bg-gray-100 rounded-md">{currentPage} / {totalPages}</div>
+                                <div className="px-4 py-1 text-sm font-medium bg-brand-blue/10 text-brand-blue rounded-md">{currentPage} / {totalPages}</div>
                                 <Button size="sm" variant="outline" onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage === totalPages}>Berikutnya</Button>
                             </div>
                         </div>

@@ -23,28 +23,40 @@ import {
     ChevronDown 
 } from 'lucide-react';
 
-// Utilities (Mencegah Duplicated Code & ReDoS)
-import { parseAndFormatDate, sortAssetData } from '../utils/assetUtils';
+// Utilities & Hooks (Solusi untuk Sonar Duplicated Code & ReDoS)
+import { parseAndFormatDate } from '../utils/assetUtils';
+import { useAssetDataProcessor } from '../hooks/useAssetDataProcessor';
 
 const Cycle = () => {
+    // --- State Lokal & Hooks ---
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [isDownloadOpen, setIsDownloadOpen] = useState(false);
     
-    const [searchTerm, setSearchTerm] = useState('');
-    const [filterArea, setFilterArea] = useState('Semua Area');
-    const [filterKondisi, setFilterKondisi] = useState('Semua');
-    const [sortConfig, setSortConfig] = useState({ key: null, direction: 'none' });
-    const [currentPage, setCurrentPage] = useState(1);
     const rowsPerPage = 50;
-
     const navigate = useNavigate();
     const location = useLocation();
     const { showToast } = useToast();
     const { service: mcpService, status: mcpStatus } = useMcp();
     const { user } = useAuth();
+
+    // --- Integrasi useAssetDataProcessor ---
+    // Logika Search, Filter Area, Filter Kondisi, dan Sort dipindahkan ke sini
+    const { 
+        searchTerm, 
+        setSearchTerm, 
+        filterArea, 
+        setFilterArea, 
+        filterKondisi, 
+        setFilterKondisi,
+        sortConfig, 
+        setSortConfig, 
+        currentPage, 
+        setCurrentPage, 
+        processedData 
+    } = useAssetDataProcessor(data?.cycle_assets_table, 'Semua Area');
 
     /**
      * Mengambil data siklus berdasarkan URL parameter atau Dashboard default
@@ -66,7 +78,7 @@ const Cycle = () => {
             });
             
             const content = result?.content;
-            if (!content?.data_available) {
+            if (!content || !content.data_available) {
                 throw new Error(content?.message || "Data untuk siklus aset tidak ditemukan.");
             }
             setData(content);
@@ -85,7 +97,7 @@ const Cycle = () => {
     }, [fetchCycleData, mcpStatus]);
 
     /**
-     * Menyimpan hasil analisis ke database
+     * Menyimpan hasil analisis dashboard ke dalam riwayat database
      */
     const handleSaveAnalysis = async () => {
         if (mcpStatus !== 'connected' || !user) {
@@ -110,7 +122,7 @@ const Cycle = () => {
     };
 
     /**
-     * Menangani pengunduhan file (CSV/XLSX)
+     * Menangani pengunduhan file data (CSV/XLSX)
      */
     const handleDownload = (format) => {
         if (!data?.data_available) {
@@ -129,7 +141,7 @@ const Cycle = () => {
         setIsDownloadOpen(false);
     };
 
-    // Memoize options untuk area dan kondisi
+    // Memoize pilihan filter unik dari data aset
     const { areaOptions, kondisiOptions } = useMemo(() => {
         if (!data?.cycle_assets_table) return { areaOptions: ['Semua Area'], kondisiOptions: ['Semua'] };
         const uniqueAreas = new Set(data.cycle_assets_table.map(item => item.AREA).filter(Boolean));
@@ -142,34 +154,10 @@ const Cycle = () => {
         };
     }, [data]);
 
-    /**
-     * Data yang diproses (Filter & Sort menggunakan Shared Utility)
-     */
-    const processedData = useMemo(() => {
-        if (!data?.cycle_assets_table) return [];
-        let filtered = [...data.cycle_assets_table];
-        
-        if (filterArea !== 'Semua Area') { 
-            filtered = filtered.filter(item => item.AREA === filterArea);
-        }
-        if (filterKondisi !== 'Semua') {
-            filtered = filtered.filter(item => item.KONDISI === filterKondisi);
-        }
-        if (searchTerm) {
-            const term = searchTerm.toLowerCase();
-            filtered = filtered.filter(item =>
-                Object.values(item).some(val => String(val || '').toLowerCase().includes(term))
-            );
-        }
-
-        // Mencegah Duplikasi: Panggil fungsi sortir universal dari assetUtils
-        return sortAssetData(filtered, sortConfig);
-    }, [data, searchTerm, filterArea, filterKondisi, sortConfig]);
-    
-    // Pagination data
+    // Metadata untuk Tabel & Pagination
+    const tableHeaders = data?.cycle_assets_table?.[0] ? Object.keys(data.cycle_assets_table[0]) : [];
     const totalPages = Math.ceil(processedData.length / rowsPerPage);
     const currentTableData = processedData.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
-    const tableHeaders = data?.cycle_assets_table?.[0] ? Object.keys(data.cycle_assets_table[0]) : [];
     
     const handlePageChange = (pageNumber) => {
         if (pageNumber >= 1 && pageNumber <= totalPages) {
@@ -192,12 +180,12 @@ const Cycle = () => {
 
     return (
         <div className="space-y-6">
-            {/* Header & Action Buttons */}
+            {/* Header & Tombol Aksi */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-bold text-gray-800">Rekomendasi Siklus Aset</h1>
                     <p className="text-gray-600 mt-1">
-                        Daftar aset yang direkomendasikan untuk peremajaan (Rusak/Penghapusan).
+                        Daftar aset yang direkomendasikan untuk peremajaan atau penggantian.
                     </p>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
@@ -210,8 +198,8 @@ const Cycle = () => {
                         </Button>
                     )}
                     <div className="relative w-full sm:w-auto">
-                        <Button onClick={() => setIsDownloadOpen(!isDownloadOpen)} variant="secondary" disabled={loading || isSaving || !data?.cycle_assets_table?.length}>
-                            <Download className="mr-2" size={16} /> Unduh <ChevronDown size={16} className={`ml-1 transition-transform ${isDownloadOpen ? 'rotate-180' : ''}`} />
+                        <Button onClick={() => setIsDownloadOpen(!isDownloadOpen)} variant="secondary" disabled={loading || isSaving || !data?.cycle_assets_table?.length} className="w-full">
+                            <Download className="mr-2" size={16} /> Unduh Data <ChevronDown size={16} className={`ml-1 transition-transform ${isDownloadOpen ? 'rotate-180' : ''}`} />
                         </Button>
                         {isDownloadOpen && (
                             <div className="absolute right-0 mt-2 w-full sm:w-48 bg-white rounded-md shadow-lg z-10 border overflow-hidden">
@@ -223,7 +211,7 @@ const Cycle = () => {
                 </div>
             </div>
 
-            {/* Analysis Timestamp Card */}
+            {/* Kartu Status Waktu Analisis */}
             <Card shadow="subtle" className="p-4 flex items-center space-x-4 bg-blue-50 border-blue-200">
                 <div className="p-3 bg-brand-blue/10 rounded-full">
                     <Clock className="h-6 w-6 text-brand-blue" />
@@ -236,41 +224,58 @@ const Cycle = () => {
                 </div>
             </Card>
 
-            {/* Filters & Table Card */}
+            {/* Bagian Utama: Filter & Tabel */}
             <Card shadow="subtle">
                 <Card.Header className="p-4 border-b flex items-center">
                     <RefreshCcw className="h-5 w-5 text-brand-green mr-3" />
-                    <Card.Title>Tabel Rekomendasi Aset</Card.Title>
+                    <Card.Title>Tabel Daftar Rekomendasi</Card.Title>
                 </Card.Header>
                 <Card.Content className="p-4">
-                    {/* Filter Grid */}
+                    {/* Control Grid: Pencarian, Filter, dan Sortir */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 p-4 bg-gray-50 rounded-lg border">
                         <div className="md:col-span-3">
                             <label htmlFor="cycle-search" className="text-sm font-medium text-gray-700">Cari Cepat</label>
-                            <Input id="cycle-search" type="text" placeholder="Cari di semua kolom..." value={searchTerm} onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }} className="mt-1" />
+                            <Input 
+                                id="cycle-search"
+                                type="text" 
+                                placeholder="Cari aset di semua kolom..." 
+                                value={searchTerm} 
+                                onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }} 
+                                className="mt-1" 
+                            />
                         </div>
                         <div className="w-full">
-                            <label htmlFor="cycle-area" className="text-sm font-medium text-gray-700">Filter Area</label>
-                            <select id="cycle-area" value={filterArea} onChange={e => { setFilterArea(e.target.value); setCurrentPage(1); }} className="mt-1 w-full p-2 border rounded-md bg-white border-gray-300 focus:ring-2 focus:ring-brand-blue">
+                            <label htmlFor="cycle-filter-area" className="text-sm font-medium text-gray-700">Filter Area</label>
+                            <select 
+                                id="cycle-filter-area"
+                                value={filterArea} 
+                                onChange={e => { setFilterArea(e.target.value); setCurrentPage(1); }} 
+                                className="mt-1 w-full p-2 border rounded-md bg-white border-gray-300 focus:ring-2 focus:ring-brand-blue"
+                            >
                                 {areaOptions.map(area => <option key={area} value={area}>{area}</option>)}
                             </select>
                         </div>
                         <div className="w-full">
-                            <label htmlFor="cycle-kondisi" className="text-sm font-medium text-gray-700">Filter Kondisi</label>
-                            <select id="cycle-kondisi" value={filterKondisi} onChange={e => { setFilterKondisi(e.target.value); setCurrentPage(1); }} className="mt-1 w-full p-2 border rounded-md bg-white border-gray-300 focus:ring-2 focus:ring-brand-blue">
+                            <label htmlFor="cycle-filter-kondisi" className="text-sm font-medium text-gray-700">Filter Kondisi</label>
+                            <select 
+                                id="cycle-filter-kondisi"
+                                value={filterKondisi} 
+                                onChange={e => { setFilterKondisi(e.target.value); setCurrentPage(1); }} 
+                                className="mt-1 w-full p-2 border rounded-md bg-white border-gray-300 focus:ring-2 focus:ring-brand-blue"
+                            >
                                 {kondisiOptions.map(kondisi => <option key={kondisi} value={kondisi}>{kondisi}</option>)}
                             </select>
                         </div>
                         <div className="w-full">
-                            <label htmlFor="cycle-sort" className="text-sm font-medium text-gray-700">Urutkan</label>
-                            <select 
-                                id="cycle-sort" 
+                            <label htmlFor="cycle-sort-select" className="text-sm font-medium text-gray-700">Urutkan Berdasarkan</label>
+                            <select
+                                id="cycle-sort-select"
                                 className="mt-1 w-full p-2 border rounded-md bg-white border-gray-300 focus:ring-2 focus:ring-brand-blue"
                                 onChange={(e) => {
-                                    const [keyRaw, dir] = e.target.value.split('-');
-                                    // Reliability fix: Cari key yang paling pas di headers (handle suffix Rp, dsb)
+                                    const [keyRaw, direction] = e.target.value.split('-');
+                                    // Mencari key asli dari header tabel (untuk support label dinamis)
                                     const actualKey = tableHeaders.find(h => h.includes(keyRaw)) || keyRaw;
-                                    setSortConfig({ key: actualKey, direction: dir });
+                                    setSortConfig({ key: actualKey, direction });
                                     setCurrentPage(1);
                                 }}
                             >
@@ -283,7 +288,7 @@ const Cycle = () => {
                         </div>
                     </div>
 
-                    {/* Table Section */}
+                    {/* Render Tabel Data Aset */}
                     <div className="overflow-x-auto">
                         {currentTableData.length > 0 ? (
                             <table className="min-w-full divide-y divide-gray-200">
@@ -298,7 +303,7 @@ const Cycle = () => {
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
                                     {currentTableData.map((row, idx) => (
-                                        <tr key={row['NO ASSET'] || `row-${idx}`} className="hover:bg-gray-50 transition-colors">
+                                        <tr key={row['NO ASSET'] || `cycle-row-${idx}`} className="hover:bg-gray-50 transition-colors">
                                             {tableHeaders.map(header => (
                                                 <td key={`${header}-${idx}`} className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                                                     {String(row[header] ?? '-')}
@@ -309,15 +314,15 @@ const Cycle = () => {
                                 </tbody>
                             </table>
                         ) : (
-                            <div className="text-center p-12 text-gray-400">
+                            <div className="text-center p-12 text-gray-500">
                                 <AlertCircle className="mx-auto h-12 w-12 mb-4 opacity-20" />
                                 <p className="text-lg">Tidak ada aset yang ditemukan.</p>
-                                <p className="text-sm">Cobalah mengubah filter atau kata kunci pencarian Anda.</p>
+                                <p className="text-sm">Cobalah untuk menyesuaikan filter atau pencarian Anda.</p>
                             </div>
                         )}
                     </div>
 
-                    {/* Pagination */}
+                    {/* Pagination Bar */}
                     {totalPages > 1 && (
                         <div className="mt-6 flex flex-col sm:flex-row justify-between items-center gap-4">
                             <span className="text-sm text-gray-500">
@@ -327,7 +332,7 @@ const Cycle = () => {
                                 <Button size="sm" variant="outline" onClick={() => handlePageChange(currentPage - 1)} disabled={currentPage === 1}>
                                     Sebelumnya
                                 </Button>
-                                <div className="px-4 py-1 text-sm font-medium bg-gray-100 rounded-md">
+                                <div className="px-4 py-1.5 text-sm font-medium bg-brand-blue/10 text-brand-blue rounded-md">
                                     {currentPage} / {totalPages}
                                 </div>
                                 <Button size="sm" variant="outline" onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage === totalPages}>
