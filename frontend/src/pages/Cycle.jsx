@@ -43,7 +43,7 @@ const Cycle = () => {
         if (typeof dateSource === 'string' && dateSource.includes('_')) {
             const [datePart, timePart] = dateSource.split('_');
             const year = datePart.substring(0, 4);
-            const month = datePart.substring(4, 6) - 1; 
+            const month = parseInt(datePart.substring(4, 6), 10) - 1; 
             const day = datePart.substring(6, 8);
             const hour = timePart.substring(0, 2);
             const minute = timePart.substring(2, 4);
@@ -52,37 +52,31 @@ const Cycle = () => {
             const dateObject = new Date(year, month, day, hour, minute, second);
             return dateObject.toLocaleString('id-ID', { dateStyle: 'long', timeStyle: 'short' });
         }
-
         const dateObject = new Date(dateSource);
-        if (dateObject.toString() !== 'Invalid Date') {
+        if (!isNaN(dateObject.getTime())) {
             return dateObject.toLocaleString('id-ID', { dateStyle: 'long', timeStyle: 'short' });
         }
-
         return 'Tanggal tidak valid';
     };
 
     const fetchCycleData = useCallback(async () => {
         if (mcpStatus !== 'connected') return;
-
         const timestamp = new URLSearchParams(location.search).get('timestamp');
-
         setLoading(true);
         setError('');
         try {
             const toolToCall = timestamp ? 'get_stats_data' : 'get_dashboard_data';
             const argumentsToCall = timestamp ? { timestamp } : {};
-
             const result = await mcpService.call('tools/call', {
                 name: toolToCall,
                 arguments: argumentsToCall
             });
             
-            const content = result.content;
-            if (!content || !content.data_available) {
-                throw new Error(content.message || "Data untuk siklus aset tidak ditemukan.");
+            const content = result?.content;
+            if (!content?.data_available) {
+                throw new Error(content?.message || "Data untuk siklus aset tidak ditemukan.");
             }
             setData(content);
-
         } catch (err) {
             setData(null);
             setError(err.message);
@@ -111,7 +105,7 @@ const Cycle = () => {
                 arguments: { auth_token: token }
             });
             showToast('Analisis berhasil disimpan!', 'success');
-            navigate(`/stats?timestamp=${result.content.timestamp}`);
+            navigate(`/stats?timestamp=${result?.content?.timestamp}`);
         } catch (err) {
             showToast(err.message || 'Gagal menyimpan analisis.', 'error');
         } finally {
@@ -120,7 +114,7 @@ const Cycle = () => {
     };
 
     const handleDownload = (format) => {
-        if (!data || !data.data_available) {
+        if (!data?.data_available) {
             showToast("Tidak ada data untuk diunduh.", 'warning');
             return;
         }
@@ -140,15 +134,17 @@ const Cycle = () => {
         if (!data?.cycle_assets_table) return { areaOptions: ['Semua Area'], kondisiOptions: ['Semua'] };
         const uniqueAreas = new Set(data.cycle_assets_table.map(item => item.AREA).filter(Boolean));
         const uniqueKondisi = new Set(data.cycle_assets_table.map(item => item.KONDISI).filter(Boolean));
+        
         return {
-            areaOptions: ['Semua Area', ...Array.from(uniqueAreas).sort()],
-            kondisiOptions: ['Semua', ...Array.from(uniqueKondisi).sort()]
+            areaOptions: ['Semua Area', ...Array.from(uniqueAreas).sort((a, b) => a.localeCompare(b))],
+            kondisiOptions: ['Semua', ...Array.from(uniqueKondisi).sort((a, b) => a.localeCompare(b))]
         };
     }, [data]);
 
     const processedData = useMemo(() => {
         if (!data?.cycle_assets_table) return [];
         let processed = [...data.cycle_assets_table];
+        
         if (filterArea !== 'Semua Area') { 
             processed = processed.filter(item => item.AREA === filterArea);
         }
@@ -158,17 +154,27 @@ const Cycle = () => {
         if (searchTerm) {
             const lowercasedTerm = searchTerm.toLowerCase();
             processed = processed.filter(item =>
-                Object.values(item).some(value => String(value).toLowerCase().includes(lowercasedTerm))
+                Object.values(item).some(value => String(value || '').toLowerCase().includes(lowercasedTerm))
             );
         }
+
+        // --- LOGIKA SORTING FIX (Dukungan titik pada angka jutaan) ---
         if (sortConfig.key && sortConfig.direction !== 'none') {
             processed.sort((a, b) => {
-                let aValue = a[sortConfig.key];
-                let bValue = b[sortConfig.key];
-                if (sortConfig.key === 'TANGGAL UPDATE') {
+                const key = sortConfig.key;
+                let aValue = a[key];
+                let bValue = b[key];
+
+                if (key.includes('NILAI ASET')) {
+                    // Regex membersihkan titik pada angka seperti 2.916.125
+                    const clean = (val) => parseInt(String(val || '0').replace(/[^0-9]/g, ''), 10) || 0;
+                    aValue = clean(aValue);
+                    bValue = clean(bValue);
+                } else if (key.includes('TANGGAL')) {
                     aValue = new Date(aValue).getTime() || 0;
                     bValue = new Date(bValue).getTime() || 0;
                 }
+
                 if (aValue < bValue) return sortConfig.direction === 'ascending' ? -1 : 1;
                 if (aValue > bValue) return sortConfig.direction === 'ascending' ? 1 : -1;
                 return 0;
@@ -222,9 +228,21 @@ const Cycle = () => {
                             <Download className="mr-2" size={16} /> Unduh Data <ChevronDown size={16} className={`ml-1 transition-transform ${isDownloadOpen ? 'rotate-180' : ''}`} />
                         </Button>
                         {isDownloadOpen && (
-                            <div className="absolute right-0 mt-2 w-full sm:w-48 bg-white rounded-md shadow-lg z-10 border">
-                                <a href="#" onClick={(e) => { e.preventDefault(); handleDownload('csv'); }} className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Unduh sebagai CSV</a>
-                                <a href="#" onClick={(e) => { e.preventDefault(); handleDownload('xlsx'); }} className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Unduh sebagai XLSX</a>
+                            <div className="absolute right-0 mt-2 w-full sm:w-48 bg-white rounded-md shadow-lg z-10 border overflow-hidden">
+                                <button 
+                                    type="button"
+                                    onClick={() => handleDownload('csv')} 
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 border-b"
+                                >
+                                    Unduh sebagai CSV
+                                </button>
+                                <button 
+                                    type="button"
+                                    onClick={() => handleDownload('xlsx')} 
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                >
+                                    Unduh sebagai XLSX
+                                </button>
                             </div>
                         )}
                     </div>
@@ -251,34 +269,57 @@ const Cycle = () => {
                 <Card.Content className="p-4">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 p-4 bg-gray-50 rounded-lg border">
                         <div className="md:col-span-3">
-                            <label className="text-sm font-medium">Cari Cepat</label>
-                            <Input type="text" placeholder="Cari di semua kolom..." value={searchTerm} onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }} className="mt-1" />
+                            <label htmlFor="cycle-search" className="text-sm font-medium">Cari Cepat</label>
+                            <Input 
+                                id="cycle-search"
+                                type="text" 
+                                placeholder="Cari di semua kolom..." 
+                                value={searchTerm} 
+                                onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }} 
+                                className="mt-1" 
+                            />
                         </div>
                         <div className="w-full">
-                            <label className="text-sm font-medium">Filter Area</label>
-                            <select value={filterArea} onChange={e => { setFilterArea(e.target.value); setCurrentPage(1); }} className="mt-1 w-full p-2 border rounded-md bg-white border-gray-300">
+                            <label htmlFor="cycle-filter-area" className="text-sm font-medium">Filter Area</label>
+                            <select 
+                                id="cycle-filter-area"
+                                value={filterArea} 
+                                onChange={e => { setFilterArea(e.target.value); setCurrentPage(1); }} 
+                                className="mt-1 w-full p-2 border rounded-md bg-white border-gray-300 focus:ring-2 focus:ring-brand-blue"
+                            >
                                 {areaOptions.map(area => <option key={area} value={area}>{area}</option>)}
                             </select>
                         </div>
                         <div className="w-full">
-                            <label className="text-sm font-medium">Filter Kondisi</label>
-                            <select value={filterKondisi} onChange={e => { setFilterKondisi(e.target.value); setCurrentPage(1); }} className="mt-1 w-full p-2 border rounded-md bg-white border-gray-300">
+                            <label htmlFor="cycle-filter-kondisi" className="text-sm font-medium">Filter Kondisi</label>
+                            <select 
+                                id="cycle-filter-kondisi"
+                                value={filterKondisi} 
+                                onChange={e => { setFilterKondisi(e.target.value); setCurrentPage(1); }} 
+                                className="mt-1 w-full p-2 border rounded-md bg-white border-gray-300 focus:ring-2 focus:ring-brand-blue"
+                            >
                                 {kondisiOptions.map(kondisi => <option key={kondisi} value={kondisi}>{kondisi}</option>)}
                             </select>
                         </div>
                         <div className="w-full">
-                            <label className="text-sm font-medium">Urutkan Berdasarkan</label>
+                            <label htmlFor="cycle-sort-select" className="text-sm font-medium">Urutkan Berdasarkan</label>
                             <select
+                                id="cycle-sort-select"
                                 onChange={(e) => {
-                                    const [key, direction] = e.target.value.split('-');
-                                    setSortConfig({ key, direction });
+                                    const direction = e.target.value.split('-')[1];
+                                    const keyRaw = e.target.value.split('-')[0];
+                                    // Flex-matching key (NILAI ASET vs NILAI ASET (Rp))
+                                    const actualKey = tableHeaders.find(h => h.includes(keyRaw)) || keyRaw;
+                                    setSortConfig({ key: actualKey, direction });
                                     setCurrentPage(1);
                                 }}
-                                className="mt-1 w-full p-2 border rounded-md bg-white border-gray-300"
+                                className="mt-1 w-full p-2 border rounded-md bg-white border-gray-300 focus:ring-2 focus:ring-brand-blue"
                             >
                                 <option value="none-none">Default</option>
-                                <option value="TANGGAL UPDATE-descending">Tgl. Update (Terbaru)</option>
-                                <option value="TANGGAL UPDATE-ascending">Tgl. Update (Terlama)</option>
+                                <option value="NILAI ASET-descending">Nilai Aset (Tertinggi)</option>
+                                <option value="NILAI ASET-ascending">Nilai Aset (Terendah)</option>
+                                <option value="TANGGAL INVENTORY-descending">Tgl. Inventory (Terbaru)</option>
+                                <option value="TANGGAL INVENTORY-ascending">Tgl. Inventory (Terlama)</option>
                             </select>
                         </div>
                     </div>
@@ -287,12 +328,22 @@ const Cycle = () => {
                         {currentTableData.length > 0 ? (
                             <table className="min-w-full divide-y divide-gray-200">
                                 <thead className="bg-gray-50">
-                                    <tr>{tableHeaders.map(key => <th key={key} scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{key}</th>)}</tr>
+                                    <tr>
+                                        {tableHeaders.map(key => (
+                                            <th key={key} scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                {key}
+                                            </th>
+                                        ))}
+                                    </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
                                     {currentTableData.map((row, index) => (
-                                        <tr key={index} className="hover:bg-gray-50">
-                                            {tableHeaders.map(header => (<td key={`${index}-${header}`} className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{String(row[header] || '')}</td>))}
+                                        <tr key={row['NO ASSET'] || index} className="hover:bg-gray-50">
+                                            {tableHeaders.map(header => (
+                                                <td key={`${header}-${index}`} className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                    {String(row[header] ?? '')}
+                                                </td>
+                                            ))}
                                         </tr>
                                     ))}
                                 </tbody>
@@ -304,12 +355,19 @@ const Cycle = () => {
                             </div>
                         )}
                     </div>
+
                     {totalPages > 1 && (
                         <div className="mt-4 flex flex-col sm:flex-row justify-between items-center gap-4">
-                            <span className="text-sm text-gray-700">Menampilkan {currentTableData.length} dari {processedData.length} baris (Halaman {currentPage} dari {totalPages})</span>
+                            <span className="text-sm text-gray-700">
+                                Menampilkan {currentTableData.length} dari {processedData.length} baris (Halaman {currentPage} dari {totalPages})
+                            </span>
                             <div className="flex items-center space-x-2">
-                                <Button size="sm" variant="outline" onClick={() => handlePageChange(currentPage - 1)} disabled={currentPage === 1}>Sebelumnya</Button>
-                                <Button size="sm" variant="outline" onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage === totalPages}>Berikutnya</Button>
+                                <Button size="sm" variant="outline" onClick={() => handlePageChange(currentPage - 1)} disabled={currentPage === 1}>
+                                    Sebelumnya
+                                </Button>
+                                <Button size="sm" variant="outline" onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage === totalPages}>
+                                    Berikutnya
+                                </Button>
                             </div>
                         </div>
                     )}

@@ -1,4 +1,5 @@
 import React from 'react';
+import PropTypes from 'prop-types'; // Tambahkan ini
 import { NavLink } from 'react-router-dom';
 import { 
     LayoutDashboard, 
@@ -39,6 +40,10 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
             <div 
                 className={`fixed inset-0 bg-black/50 z-20 md:hidden transition-opacity ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                 onClick={() => setIsOpen(false)}
+                onKeyDown={(e) => e.key === 'Escape' && setIsOpen(false)}
+                role="button"
+                tabIndex={isOpen ? 0 : -1}
+                aria-label="Tutup sidebar"
             ></div>
 
             <aside className={`fixed top-0 left-0 h-screen w-64 bg-sidebar text-text-light flex flex-col shadow-lg z-30 transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0`}>
@@ -51,7 +56,7 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
                             <p className="text-xs text-gray-400">Pertamina Hulu Rokan</p>
                         </div>
                     </div>
-                    <button onClick={() => setIsOpen(false)} className="p-2 text-gray-400 hover:text-white md:hidden">
+                    <button onClick={() => setIsOpen(false)} className="p-2 text-gray-400 hover:text-white md:hidden" aria-label="Close menu">
                         <X size={20} />
                     </button>
                 </div>
@@ -99,6 +104,12 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
             </aside>
         </>
     );
+};
+
+// Validasi Props
+Sidebar.propTypes = {
+    isOpen: PropTypes.bool.isRequired,
+    setIsOpen: PropTypes.func.isRequired
 };
 
 export default Sidebar;

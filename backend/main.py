@@ -3,7 +3,6 @@ import uvicorn
 import logging
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-
 from app.infrastructure.database.database import engine, Base
 from app.presentation.routes import web_api
 from app.presentation.protocols.mcp_server import McpServer
@@ -79,5 +78,19 @@ async def mcp_websocket_endpoint(websocket: WebSocket):
                 "id": None
             })
 
+# --- Entry Point yang Aman (SonarQube Compliant) ---
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
+    app_host = os.getenv("APP_HOST", "127.0.0.1") 
+    app_port = int(os.getenv("APP_PORT", 8000))
+    app_reload = os.getenv("APP_RELOAD", "false").lower() == "true"
+
+    logging.info(f"Memulai server pada {app_host}:{app_port} (Reload: {app_reload})")
+    
+    uvicorn.run(
+        "main:app", 
+        host=app_host, 
+        port=app_port, 
+        reload=app_reload,
+        proxy_headers=True,
+        forwarded_allow_ips="*"
+    )
