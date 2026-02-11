@@ -51,6 +51,11 @@ import {
 
 const chartPalettes = ['#003A70', '#00A859', '#E82A2A', '#F7941E', '#5A6474', '#00B4F1'];
 
+// Helper untuk format angka tanpa Regex (Mencegah ReDoS)
+const formatIDRCurrency = (value) => {
+    return new Intl.NumberFormat('id-ID').format(value);
+};
+
 const ChartCard = ({ title, icon: Icon, children }) => (
     <Card shadow="subtle">
         <Card.Header className="p-4 border-b flex items-center">
@@ -187,6 +192,7 @@ const Stats = () => {
                 let bValue = b[key];
 
                 if (key.includes('NILAI ASET')) {
+                    // Membersihkan format titik dan non-angka
                     const clean = (val) => parseInt(String(val || '0').replace(/[^0-9]/g, ''), 10) || 0;
                     aValue = clean(aValue);
                     bValue = clean(bValue);
@@ -227,17 +233,16 @@ const Stats = () => {
         </div>
     );
 
+    // FIXED: Menggunakan Intl.NumberFormat untuk keamanan dan kecepatan (Bukan Regex)
     const onTooltipRender = (args) => {
         if (args.point && typeof args.point.y === 'number') {
-            const value = args.point.y.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-            args.text = `<b>${args.point.x}</b><br/>Nilai: <b>Rp ${value}</b>`;
+            args.text = `<b>${args.point.x}</b><br/>Nilai: <b>Rp ${formatIDRCurrency(args.point.y)}</b>`;
         }
     };
 
     const onAxisLabelRender = (args) => {
         if (args.axis.name === 'primaryYAxis') {
-            const value = Number(args.value);
-            args.text = value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+            args.text = formatIDRCurrency(Number(args.value));
         }
     };
 
@@ -265,7 +270,6 @@ const Stats = () => {
 
     return (
         <div className="space-y-6">
-            {/* Header section */}
             <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-4">
                 <div>
                     <h1 className="text-2xl md:text-3xl font-bold text-gray-800">Detail Statistik Analisis</h1>
@@ -320,7 +324,6 @@ const Stats = () => {
                 </div>
             </div>
             
-            {/* Chart grid */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <ChartCard title="Distribusi Kondisi Aset" icon={PieChart}>
                     {data?.chart_data?.kondisi?.length > 0 ? (
@@ -364,7 +367,6 @@ const Stats = () => {
                 </ChartCard>
             </div>
             
-            {/* Analisa Rangkuman (AI) */}
             <Card shadow="subtle">
                 <Card.Header 
                     className="p-4 border-b flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors" 
@@ -389,7 +391,6 @@ const Stats = () => {
                 )}
             </Card>
 
-            {/* Tabel Data Mentah */}
             <Card shadow="subtle">
                 <Card.Header className="p-4 border-b flex items-center">
                     <BarChart2 className="h-5 w-5 text-brand-green mr-3" />
@@ -399,23 +400,11 @@ const Stats = () => {
                     <div className="flex flex-col md:flex-row gap-4 mb-4 p-4 bg-gray-50 rounded-lg border">
                         <div className="flex-grow">
                             <label htmlFor="search-table-stats" className="text-sm font-medium text-gray-700">Cari Data</label>
-                            <Input 
-                                id="search-table-stats" 
-                                type="text" 
-                                placeholder="Ketik untuk mencari di semua kolom..." 
-                                value={searchTerm} 
-                                onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} 
-                                className="mt-1" 
-                            />
+                            <Input id="search-table-stats" type="text" placeholder="Ketik untuk mencari di semua kolom..." value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} className="mt-1" />
                         </div>
                         <div className="w-full md:w-48">
                             <label htmlFor="kondisi-filter-stats" className="text-sm font-medium text-gray-700">Filter Kondisi</label>
-                            <select 
-                                id="kondisi-filter-stats" 
-                                value={kondisiFilter} 
-                                onChange={(e) => { setKondisiFilter(e.target.value); setCurrentPage(1); }} 
-                                className="mt-1 w-full p-2 border rounded-md bg-white border-gray-300 focus:ring-2 focus:ring-brand-blue"
-                            >
+                            <select id="kondisi-filter-stats" value={kondisiFilter} onChange={(e) => { setKondisiFilter(e.target.value); setCurrentPage(1); }} className="mt-1 w-full p-2 border rounded-md bg-white border-gray-300 focus:ring-2 focus:ring-brand-blue">
                                 {kondisiOptions.map(opsi => <option key={opsi} value={opsi}>{opsi}</option>)}
                             </select>
                         </div>
