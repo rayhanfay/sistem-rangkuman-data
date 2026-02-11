@@ -49,12 +49,10 @@ import {
     AccumulationLegend
 } from '@syncfusion/ej2-react-charts';
 
-const chartPalettes = ['#003A70', '#00A859', '#E82A2A', '#F7941E', '#5A6474', '#00B4F1'];
+// Import Utilities (Mencegah Duplikasi & ReDoS)
+import { parseAndFormatDate, sortAssetData, formatIDRCurrency } from '../utils/assetUtils';
 
-// Helper untuk format angka tanpa Regex (Mencegah ReDoS)
-const formatIDRCurrency = (value) => {
-    return new Intl.NumberFormat('id-ID').format(value);
-};
+const chartPalettes = ['#003A70', '#00A859', '#E82A2A', '#F7941E', '#5A6474', '#00B4F1'];
 
 const ChartCard = ({ title, icon: Icon, children }) => (
     <Card shadow="subtle">
@@ -170,54 +168,30 @@ const Stats = () => {
         return ['Semua', ...Array.from(uniqueKondisi).sort((a, b) => a.localeCompare(b))];
     }, [data]);
 
+    /**
+     * Memproses data tabel menggunakan filter lokal dan utility sortir universal
+     */
     const processedData = useMemo(() => {
         if (!data?.table_data) return [];
-        let processed = [...data.table_data];
+        let filtered = [...data.table_data];
 
         if (kondisiFilter !== 'Semua') {
-            processed = processed.filter(item => item.KONDISI === kondisiFilter);
+            filtered = filtered.filter(item => item.KONDISI === kondisiFilter);
         }
         if (searchTerm) {
-            const lowercasedTerm = searchTerm.toLowerCase();
-            processed = processed.filter(item => 
-                Object.values(item).some(value => String(value || '').toLowerCase().includes(lowercasedTerm))
+            const term = searchTerm.toLowerCase();
+            filtered = filtered.filter(item => 
+                Object.values(item).some(value => String(value || '').toLowerCase().includes(term))
             );
         }
 
-        // --- LOGIKA SORTING FIX (Dukungan Nilai Aset & Tgl Inventory) ---
-        if (sortConfig.key && sortConfig.direction !== 'none') {
-            processed.sort((a, b) => {
-                const key = sortConfig.key;
-                let aValue = a[key];
-                let bValue = b[key];
-
-                if (key.includes('NILAI ASET')) {
-                    // Membersihkan format titik dan non-angka
-                    const clean = (val) => parseInt(String(val || '0').replace(/[^0-9]/g, ''), 10) || 0;
-                    aValue = clean(aValue);
-                    bValue = clean(bValue);
-                } else if (key.includes('TANGGAL')) {
-                    aValue = new Date(aValue).getTime() || 0;
-                    bValue = new Date(bValue).getTime() || 0;
-                } else {
-                    aValue = String(aValue || '').toLowerCase();
-                    bValue = String(bValue || '').toLowerCase();
-                    return sortConfig.direction === 'ascending' 
-                        ? aValue.localeCompare(bValue) 
-                        : bValue.localeCompare(aValue);
-                }
-
-                if (aValue < bValue) return sortConfig.direction === 'ascending' ? -1 : 1;
-                if (aValue > bValue) return sortConfig.direction === 'ascending' ? 1 : -1;
-                return 0;
-            });
-        }
-        return processed;
+        // Panggil utility sortir (Mencegah Duplikasi & ReDoS)
+        return sortAssetData(filtered, sortConfig);
     }, [data, searchTerm, kondisiFilter, sortConfig]);
 
     const totalPages = Math.ceil(processedData.length / rowsPerPage);
     const currentTableData = processedData.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
-    const tableHeaders = data?.table_data?.length > 0 ? Object.keys(data.table_data[0]) : [];
+    const tableHeaders = data?.table_data?.[0] ? Object.keys(data.table_data[0]) : [];
     
     const handlePageChange = (pageNumber) => {
         if (pageNumber >= 1 && pageNumber <= totalPages) {
@@ -233,7 +207,7 @@ const Stats = () => {
         </div>
     );
 
-    // FIXED: Menggunakan Intl.NumberFormat untuk keamanan dan kecepatan (Bukan Regex)
+    // Menggunakan utility formatIDRCurrency (Mencegah ReDoS)
     const onTooltipRender = (args) => {
         if (args.point && typeof args.point.y === 'number') {
             args.text = `<b>${args.point.x}</b><br/>Nilai: <b>Rp ${formatIDRCurrency(args.point.y)}</b>`;
@@ -270,6 +244,7 @@ const Stats = () => {
 
     return (
         <div className="space-y-6">
+            {/* Page Header */}
             <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-4">
                 <div>
                     <h1 className="text-2xl md:text-3xl font-bold text-gray-800">Detail Statistik Analisis</h1>
@@ -304,26 +279,15 @@ const Stats = () => {
                         </Button>
                         {isDownloadOpen && (
                             <div className="absolute right-0 mt-2 w-full sm:w-48 bg-white rounded-md shadow-lg z-10 border overflow-hidden">
-                                <button 
-                                    type="button"
-                                    onClick={() => handleDownload('csv')} 
-                                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 border-b"
-                                >
-                                    Unduh sebagai CSV
-                                </button>
-                                <button 
-                                    type="button"
-                                    onClick={() => handleDownload('xlsx')} 
-                                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                                >
-                                    Unduh sebagai XLSX
-                                </button>
+                                <button type="button" onClick={() => handleDownload('csv')} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 border-b">Unduh sebagai CSV</button>
+                                <button type="button" onClick={() => handleDownload('xlsx')} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Unduh sebagai XLSX</button>
                             </div>
                         )}
                     </div>
                 </div>
             </div>
             
+            {/* Chart Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <ChartCard title="Distribusi Kondisi Aset" icon={PieChart}>
                     {data?.chart_data?.kondisi?.length > 0 ? (
@@ -367,6 +331,7 @@ const Stats = () => {
                 </ChartCard>
             </div>
             
+            {/* Executive AI Summary Section */}
             <Card shadow="subtle">
                 <Card.Header 
                     className="p-4 border-b flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors" 
@@ -391,6 +356,7 @@ const Stats = () => {
                 )}
             </Card>
 
+            {/* Raw Data Table Section */}
             <Card shadow="subtle">
                 <Card.Header className="p-4 border-b flex items-center">
                     <BarChart2 className="h-5 w-5 text-brand-green mr-3" />
@@ -412,20 +378,20 @@ const Stats = () => {
                             <label htmlFor="sort-filter-stats" className="text-sm font-medium text-gray-700">Urutkan Berdasarkan</label>
                             <select 
                                 id="sort-filter-stats" 
+                                className="mt-1 w-full p-2 border rounded-md bg-white border-gray-300 focus:ring-2 focus:ring-brand-blue"
                                 onChange={(e) => { 
-                                    const direction = e.target.value.split('-')[1];
-                                    const keyRaw = e.target.value.split('-')[0];
+                                    const [keyRaw, direction] = e.target.value.split('-');
+                                    // Reliability fix: Cari key asli di data (handle suffix Rp, dsb)
                                     const actualKey = tableHeaders.find(h => h.includes(keyRaw)) || keyRaw;
                                     setSortConfig({ key: actualKey, direction }); 
                                     setCurrentPage(1); 
                                 }} 
-                                className="mt-1 w-full p-2 border rounded-md bg-white border-gray-300 focus:ring-2 focus:ring-brand-blue"
                             >
                                 <option value="none-none">Default</option>
                                 <option value="NILAI ASET-descending">Nilai Aset (Tertinggi)</option>
                                 <option value="NILAI ASET-ascending">Nilai Aset (Terendah)</option>
-                                <option value="TANGGAL INVENTORY-descending">Tgl. Inventory (Terbaru)</option>
-                                <option value="TANGGAL INVENTORY-ascending">Tgl. Inventory (Terlama)</option>
+                                <option value="TANGGAL-descending">Tgl. Inventory (Terbaru)</option>
+                                <option value="TANGGAL-ascending">Tgl. Inventory (Terlama)</option>
                             </select>
                         </div>
                     </div>
@@ -443,11 +409,11 @@ const Stats = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                    {currentTableData.map((row, index) => (
-                                        <tr key={row['NO ASSET'] || index} className="hover:bg-gray-50">
+                                    {currentTableData.map((row, idx) => (
+                                        <tr key={row['NO ASSET'] || `row-${idx}`} className="hover:bg-gray-50 transition-colors">
                                             {tableHeaders.map(header => (
-                                                <td key={`${header}-${index}`} className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                                                    {String(row[header] ?? '')}
+                                                <td key={`${header}-${idx}`} className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                                    {String(row[header] ?? '-')}
                                                 </td>
                                             ))}
                                         </tr>
@@ -455,18 +421,19 @@ const Stats = () => {
                                 </tbody>
                             </table>
                         ) : (
-                            <div className="text-center p-8 text-gray-500">
-                                <AlertCircle className="mx-auto h-10 w-10 mb-2"/>
-                                <p>Tidak ada data tabel yang cocok dengan kriteria Anda.</p>
+                            <div className="text-center p-12 text-gray-400">
+                                <AlertCircle className="mx-auto h-12 w-12 mb-4 opacity-20"/>
+                                <p className="text-lg">Tidak ada data tabel yang ditemukan.</p>
                             </div>
                         )}
                     </div>
                     
                     {totalPages > 1 && (
                         <div className="mt-4 flex flex-col sm:flex-row justify-between items-center gap-4">
-                            <span className="text-sm text-gray-700">Menampilkan {currentTableData.length} dari {processedData.length} baris (Halaman {currentPage} dari {totalPages})</span>
+                            <span className="text-sm text-gray-600">Menampilkan {currentTableData.length} dari {processedData.length} baris</span>
                             <div className="flex items-center space-x-2">
                                 <Button size="sm" variant="outline" onClick={() => handlePageChange(currentPage - 1)} disabled={currentPage === 1}>Sebelumnya</Button>
+                                <div className="px-4 py-1 text-sm font-medium bg-gray-100 rounded-md">{currentPage} / {totalPages}</div>
                                 <Button size="sm" variant="outline" onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage === totalPages}>Berikutnya</Button>
                             </div>
                         </div>
