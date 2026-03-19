@@ -21,6 +21,9 @@ class ModelRotationService:
     MODELS = [
         "gemini-2.5-flash",
         "gemini-2.5-flash-lite"
+        # Model usage for the future
+        # "gemini-3-flash-preview", (5 RPM 10 RPD)
+        # "gemini-3.1-flash-lite-preview" (15 RPM 500 RPD)
     ]
     
     API_KEYS = [
